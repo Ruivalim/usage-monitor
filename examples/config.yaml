@@ -1,0 +1,32 @@
+# App behavior example — copy to ~/.config/usagemon/config.yaml and edit.
+# Secrets should preferably come from environment variables:
+#   USAGE_MONITOR_AUTH_PASSWORD or USAGE_MONITOR_AUTH_PASSWORD_HASH
+
+dashboard:
+  # Default state of the "show auth" toggle.
+  show_auth: false
+
+  # en | pt
+  language: en
+
+  # light | dark
+  theme: light
+
+intervals:
+  # Backend scheduler/check interval. 900 = every 15 minutes.
+  # Use 0 to disable background checks.
+  refresh_seconds: 900
+
+  # macOS menu bar app refresh interval. 300 = every 5 minutes.
+  # Use 0 to disable tray-triggered refreshes.
+  menubar_seconds: 300
+
+auth:
+  # Basic Auth for the dashboard and local API. Disabled by default because the
+  # server binds 127.0.0.1. Enable it when proxying, sharing, or just wanting a
+  # local browser gate.
+  enabled: false
+  realm: usage-monitor
+  username: local
+  # password_hash: pbkdf2_sha256$390000$<salt-hex>$<hash-hex>
+  # password: local-dev-only-plaintext

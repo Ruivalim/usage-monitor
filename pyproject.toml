@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "usage-monitor"
+version = "0.3.0"
+description = "Standalone provider-agnostic API usage, balance, quota, and rate-limit monitor"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "httpx>=0.27",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+menubar = [
+  "rumps>=0.4",
+]
+
+[project.scripts]
+usagectl = "scripts.usagectl:main"
+
+[tool.setuptools]
+packages = ["usage_monitor_app", "scripts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

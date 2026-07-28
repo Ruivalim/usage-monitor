@@ -1,0 +1,151 @@
+# Provider registry example — copy to ~/.config/usagemon/providers.yaml and edit.
+# (The installer also drops a copy at ~/.config/usagemon/providers.example.yaml.)
+#
+# Override the path with USAGE_MONITOR_PROVIDERS_FILE. Every provider below is a
+# working example of one built-in type; most are `enabled: false` so you can copy
+# the file as-is and switch on only what you actually use.
+#
+# Entry keys
+#   id          required, unique; also the key used by overrides.json
+#   label       display name (defaults to id)
+#   type        adapter type, see the sections below
+#   enabled     false skips the entry entirely (default true)
+#   credential  where the token comes from (see "Credential sources")
+#   timeout     per-request seconds; falls back to `defaults.timeout`
+#
+# Credential sources
+#   keychain  macOS Keychain, preferred: {source: keychain, service: ..., account: ...}
+#   env       {source: env, name: ENV_VAR_NAME}
+#   hermes    Hermes credential pool: {source: hermes, provider: <hermes provider id>}
+#   literal   {source: literal, value: TOKEN} — local testing only, never commit tokens
+#
+# Dependencies
+#   - Types prefixed with `hermes-` (plus `hermes-account-usage` /
+#     `anthropic-subscription`) need a working Hermes install; without it they
+#     report `unavailable` instead of failing the run. Nothing Hermes-specific is
+#     imported unless one of those adapters actually runs.
+#   - `credential.source: keychain` is macOS-only (`security` CLI).
+#   - HTTP types need `httpx`; YAML parsing needs `PyYAML`. Both ship as base
+#     dependencies of the package.
+#
+# Alert notifications (dedup + macOS osascript) are controlled by env vars, not
+# this file: USAGE_MONITOR_ALERT_STATE_FILE, USAGE_MONITOR_ALERT_SNOOZE_SECONDS,
+# USAGE_MONITOR_ALERT_NOTIFY. See docs/CONFIGURATION.md.
+
+defaults:
+  timeout: 12
+
+providers:
+  # --- Credit/balance APIs -------------------------------------------------
+
+  # DeepSeek: reads api.deepseek.com/user/balance. Reports the total balance and
+  # flags `quota_exhausted` when the account is marked unavailable.
+  - id: deepseek
+    label: DeepSeek
+    type: deepseek
+    credential:
+      source: keychain
+      service: api-usage-monitor/deepseek
+      account: default
+
+  # Kimi / Moonshot: reads <base_url>/users/me/balance. base_url is optional and
+  # defaults to https://api.moonshot.ai/v1. Endpoint shapes still vary by account
+  # type; unrecognized payloads land in `details` rather than failing.
+  - id: kimi
+    label: Kimi / Moonshot
+    type: kimi
+    enabled: false
+    base_url: https://api.moonshot.ai/v1
+    credential:
+      source: keychain
+      service: api-usage-monitor/kimi
+      account: default
+
+  # --- Generic HTTP --------------------------------------------------------
+
+  # Any OpenAI-compatible server. With `models_endpoint` this is a reachability
+  # check; with `credits_endpoint` the generic parser also looks for the numeric
+  # fields: balance, credits, credit, available, remaining.
+  - id: local-openai
+    label: Local OpenAI-compatible server
+    type: openai-compatible
+    base_url: http://127.0.0.1:8000/v1
+    models_endpoint: /models
+    credential:
+      source: env
+      name: LOCAL_OPENAI_API_KEY
+
+  # `generic-http` is an alias of `openai-compatible` for non-OpenAI endpoints.
+  # `headers` is merged into the request (Accept/Authorization are set for you).
+  - id: provider-x
+    label: Provider X credits
+    type: generic-http
+    enabled: false
+    base_url: https://api.provider-x.example
+    credits_endpoint: /v1/credits
+    currency: USD
+    headers:
+      X-Client: usage-monitor
+    credential:
+      source: env
+      name: PROVIDER_X_API_KEY
+
+  # --- Placeholder ---------------------------------------------------------
+
+  # Keeps a provider visible while no usable usage endpoint exists. Reports
+  # `unknown` when a credential resolves and `unavailable` when it does not.
+  - id: zai
+    label: Z.ai / GLM
+    type: placeholder
+    enabled: false
+    message: No known public balance endpoint configured.
+    credential:
+      source: hermes
+      provider: zai
+
+  # --- Subscription / quota windows (require Hermes) -----------------------
+
+  # Bridges Hermes `agent.account_usage` for OAuth-subscription providers.
+  # `provider` is the Hermes provider id; usage windows become percent-left bars
+  # with reset countdowns. Reports `unavailable` without Hermes.
+  - id: codex
+    label: OpenAI Codex / ChatGPT
+    type: hermes-account-usage
+    provider: openai-codex
+
+  # Same bridge, pre-pointed at Anthropic; `provider` defaults to `anthropic`.
+  - id: claude
+    label: Claude / Anthropic
+    type: anthropic-subscription
+    enabled: false
+
+  # Nous portal credit lines via Hermes. Marks `quota_exhausted` when the portal
+  # reports depleted access.
+  - id: nous
+    label: Nous Portal
+    type: hermes-nous
+    enabled: false
+
+  # --- Hermes local state --------------------------------------------------
+
+  # Parses `hermes auth list` and emits one `auth:<provider>` entry per provider,
+  # detecting rate-limited/exhausted states. Needs the `hermes` CLI on PATH.
+  # These entries are hidden behind the dashboard's "mostrar auth" toggle.
+  - id: hermes-auth
+    label: Hermes auth
+    type: hermes-auth
+
+  # Read-only aggregation of recorded usage from Hermes state.db.
+  # No credentials or network: opens SQLite with URI mode=ro. Emits one entry per
+  # billing provider, with per-model calls/tokens/cost in `details`.
+  - id: hermes-state
+    label: Hermes state.db
+    type: hermes-state-db
+    enabled: false
+    # db_paths:                     # optional; defaults to $HERMES_HOME/state.db
+    #   - ~/.hermes/state.db
+    # profile: default              # optional; only sessions of this profile
+    # limit_days: 30                # optional; only rows seen in the last N days
+
+# Anything not covered here can be added as an external Python adapter in
+# ~/.config/usagemon/adapters/ without touching this file — see docs/EXTENDING.md.

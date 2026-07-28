@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>KeepAlive</key>
+	<false/>
+	<key>Label</key>
+	<string>com.usage-monitor.menubar</string>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/path/to/python3</string>
+		<string>/path/to/usage-monitor/scripts/usagectl.py</string>
+		<string>menubar</string>
+		<string>--interval</string>
+		<string>300</string>
+		<string>--dashboard-url</string>
+		<string>http://127.0.0.1:9097</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/path/to/state/logs/menubar.err.log</string>
+	<key>StandardOutPath</key>
+	<string>/path/to/state/logs/menubar.out.log</string>
+	<key>WorkingDirectory</key>
+	<string>/path/to/usage-monitor</string>
+</dict>
+</plist>

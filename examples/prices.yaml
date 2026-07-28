@@ -1,0 +1,55 @@
+# External price table for token-cost estimates.
+# The monitor loads this file from ~/.config/usagemon/prices.yaml (or USAGE_MONITOR_PRICES_FILE)
+# so pricing can be updated without code changes. No network access is involved.
+#
+# Schema (version 1):
+#   providers.<id>.currency        ISO currency code shared by all models of the provider
+#   providers.<id>.source          provenance URL/note (optional)
+#   providers.<id>.models.<name>   prices per 1M tokens: input / output / cached (cached optional)
+#
+# Model names are normalized on lookup (lowercase, date stamps and ":tag" suffixes
+# stripped), so "example-chat-2024-08-01" matches "example-chat". Cached tokens
+# fall back to the input price when no cached price is listed.
+#
+# The concrete values below are fake examples. Replace them with verified provider
+# pricing before using cost estimates for decisions.
+
+version: 1
+
+providers:
+  example-provider:
+    currency: USD
+    source: https://example.test/pricing
+    models:
+      example-chat:
+        input: 1.00
+        output: 3.00
+        cached: 0.25
+      example-reasoner:
+        input: 2.00
+        output: 6.00
+
+  openrouter:
+    currency: USD
+    source: https://openrouter.ai/docs
+    models: {}
+
+  deepseek:
+    currency: CNY
+    source: https://api-docs.deepseek.com/quick_start/pricing
+    models: {}
+
+  kimi-coding:
+    currency: CNY
+    source: TBD
+    models: {}
+
+  grok:
+    currency: USD
+    source: TBD
+    models: {}
+
+  zai:
+    currency: USD
+    source: TBD
+    models: {}
