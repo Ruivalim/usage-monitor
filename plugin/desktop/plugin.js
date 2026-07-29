@@ -1,4 +1,4 @@
-import { host, haptic, useQuery } from '@hermes/plugin-sdk'
+import { host, haptic, useQuery, atom, useValue } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
 const STATUS_LABEL = {
@@ -45,12 +45,55 @@ function useStatus() {
   })
 }
 
+function useConfig() {
+  return useQuery({
+    queryKey: ['api-usage-monitor', 'config'],
+    queryFn: () => ctxRef.rest('/config'),
+    staleTime: 300000
+  })
+}
+
+// Same predicate as the standalone dashboard (web.py): the hermes-auth adapter
+// emits one `auth:<provider>` entry per credential, which is noise next to the
+// balance/quota rows most of the time.
+const isAuthEntry = (p) => String(p?.id || '').startsWith('auth:')
+
+const visibleProviders = (data, showAuth) =>
+  (data?.providers || []).filter((p) => showAuth || !isAuthEntry(p))
+
+// Alerts carry the provider id, so hidden rows must not keep raising the chip
+// count — otherwise the chip reports alerts with no visible row behind them.
+const visibleAlerts = (data, showAuth) =>
+  (data?.alerts || []).filter((a) => showAuth || !String(a?.provider || '').startsWith('auth:'))
+
+const STORAGE_SHOW_AUTH = 'showAuth'
+
+// null = follow config.yaml's dashboard.show_auth; true/false = the user used
+// the pane toggle, which wins and is remembered across restarts.
+const showAuthOverride = atom(null)
+
+function resolveShowAuth(config, override) {
+  if (override === true || override === false) return override
+  return !!(config?.dashboard || {}).show_auth
+}
+
+function useShowAuth() {
+  const config = useConfig().data
+  return resolveShowAuth(config, useValue(showAuthOverride))
+}
+
+function setShowAuth(value) {
+  showAuthOverride.set(value)
+  ctxRef.storage.set(STORAGE_SHOW_AUTH, value)
+}
+
 let ctxRef = null
 
 function Chip() {
   const q = useStatus()
+  const showAuth = useShowAuth()
   const data = q.data
-  const alerts = data?.alerts?.length || 0
+  const alerts = visibleAlerts(data, showAuth).length
   const overall = data?.overall || (q.isError ? 'error' : 'unknown')
   return jsx('button', {
     type: 'button',
@@ -80,6 +123,7 @@ function ProviderRow({ provider }) {
 
 function ApiUsagePane() {
   const q = useStatus()
+  const showAuth = useShowAuth()
   const data = q.data
   const refresh = async () => {
     haptic('tap')
@@ -100,8 +144,9 @@ function ApiUsagePane() {
     return jsx('div', { className: 'p-3 text-sm text-(--ui-danger)', children: `Erro no plugin: ${q.error?.message || q.error}` })
   }
 
-  const providers = data?.providers || []
-  const alerts = data?.alerts || []
+  const providers = visibleProviders(data, showAuth)
+  const alerts = visibleAlerts(data, showAuth)
+  const hiddenAuth = (data?.providers || []).filter(isAuthEntry).length
   return jsxs('div', {
     className: 'flex h-full flex-col gap-3 p-3 text-sm',
     children: [
@@ -111,6 +156,13 @@ function ApiUsagePane() {
           jsx('div', { className: 'text-xs text-(--ui-text-tertiary)', children: `overall: ${data?.overall || 'unknown'} · ${data?.checked_at || ''}` })
         ] }),
         jsxs('div', { className: 'flex gap-2', children: [
+          hiddenAuth || showAuth ? jsx('button', {
+            type: 'button',
+            className: 'rounded border border-(--ui-stroke-secondary) px-2 py-1 text-xs hover:bg-(--ui-fill-hover)',
+            title: 'Mostrar/ocultar os providers auth:* do hermes-auth',
+            onClick: () => { haptic('tap'); setShowAuth(!showAuth) },
+            children: showAuth ? `Ocultar auth (${hiddenAuth})` : `Mostrar auth (${hiddenAuth})`
+          }) : null,
           jsx('button', { type: 'button', className: 'rounded border border-(--ui-stroke-secondary) px-2 py-1 text-xs hover:bg-(--ui-fill-hover)', onClick: refresh, children: 'Refresh' }),
           jsx('button', { type: 'button', className: 'rounded border border-(--ui-stroke-secondary) px-2 py-1 text-xs hover:bg-(--ui-fill-hover)', onClick: copyJson, children: 'Copy JSON' })
         ] })
@@ -127,6 +179,10 @@ export default {
   name: 'API Usage Monitor',
   register(ctx) {
     ctxRef = ctx
+    // null (the default) means "follow dashboard.show_auth from config.yaml",
+    // so a fresh install hides auth:* without the user touching anything.
+    const stored = ctx.storage.get(STORAGE_SHOW_AUTH, null)
+    showAuthOverride.set(stored === true || stored === false ? stored : null)
     ctx.register({
       id: 'pane',
       area: 'panes',

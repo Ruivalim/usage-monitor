@@ -10,6 +10,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
+from usage_monitor_app.config import load_app_config
 from usage_monitor_app.core import collect_status, latest_snapshot, render_text, snapshot_json, _to_plain
 from usage_monitor_app.web import dashboard_html
 
@@ -19,6 +20,16 @@ router = APIRouter()
 @router.get('/', response_class=HTMLResponse)
 async def dashboard():
     return dashboard_html()
+
+
+@router.get('/config')
+async def public_config():
+    """Bootstrap flags for the Desktop plugin. Never includes credentials.
+
+    Same payload as the standalone dashboard's ``/config`` so both UIs read
+    ``dashboard.show_auth`` from the one config.yaml instead of drifting.
+    """
+    return load_app_config().public_dict()
 
 
 @router.get('/status')
