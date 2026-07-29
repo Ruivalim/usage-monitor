@@ -334,7 +334,8 @@ def install_cli_wrapper(repo: Path | None = None, *, bin_dir: Path | None = None
 def install_skill(repo: Path | None = None, *, skip_plugin: bool = False) -> dict[str, list[str]]:
     src = repo or _resolve_repo(None)
     plugin_name = "api-usage-monitor"
-    plugin_dst = HERMES_HOME / "plugins" / plugin_name / "dashboard"
+    plugin_root_dst = HERMES_HOME / "plugins" / plugin_name
+    plugin_dst = plugin_root_dst / "dashboard"
     desktop_plugin_dst = HERMES_HOME / "desktop-plugins" / plugin_name
     skill_dst = HERMES_HOME / "skills" / "productivity" / "api-usage-monitoring"
     adapters_dst = HERMES_HOME / "usage" / "adapters"
@@ -347,6 +348,12 @@ def install_skill(repo: Path | None = None, *, skip_plugin: bool = False) -> dic
     plugin_dst.mkdir(parents=True, exist_ok=True)
     (plugin_dst / "dist").mkdir(parents=True, exist_ok=True)
     plugin_files = [
+        # plugin.yaml + __init__.py belong at the plugin ROOT, not in dashboard/:
+        # Hermes only discovers a directory holding both, and discovery is what
+        # lets `hermes plugins enable` add the plugin to plugins.enabled — the
+        # gate the web server checks before mounting dashboard/plugin_api.py.
+        (src / "plugin" / "agent" / "plugin.yaml", plugin_root_dst / "plugin.yaml"),
+        (src / "plugin" / "agent" / "__init__.py", plugin_root_dst / "__init__.py"),
         (src / "plugin" / "manifest.json", plugin_dst / "manifest.json"),
         (src / "plugin" / "usage_monitor.py", plugin_dst / "usage_monitor.py"),
         (src / "plugin" / "plugin_api.py", plugin_dst / "plugin_api.py"),

@@ -6,7 +6,8 @@ set -euo pipefail
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 PLUGIN_NAME="api-usage-monitor"
-PLUGIN_DIR="${HERMES_HOME}/plugins/${PLUGIN_NAME}/dashboard"
+PLUGIN_ROOT="${HERMES_HOME}/plugins/${PLUGIN_NAME}"
+PLUGIN_DIR="${PLUGIN_ROOT}/dashboard"
 DESKTOP_PLUGIN_DIR="${HERMES_HOME}/desktop-plugins/${PLUGIN_NAME}"
 SKILL_DIR="${HERMES_HOME}/skills/productivity/api-usage-monitoring"
 ADAPTERS_DIR="${HERMES_HOME}/usage/adapters"
@@ -18,6 +19,12 @@ echo ""
 # 1. Plugin core
 echo "[1/7] Installing plugin core..."
 mkdir -p "${PLUGIN_DIR}/dist"
+# plugin.yaml + __init__.py sit at the plugin ROOT (not dashboard/): Hermes only
+# discovers a directory that has both, and discovery is what lets
+# `hermes plugins enable` add it to plugins.enabled — the gate the web server
+# checks before mounting dashboard/plugin_api.py.
+cp -f "${REPO_DIR}/plugin/agent/plugin.yaml" "${PLUGIN_ROOT}/"
+cp -f "${REPO_DIR}/plugin/agent/__init__.py" "${PLUGIN_ROOT}/"
 cp -f "${REPO_DIR}/plugin/manifest.json" "${PLUGIN_DIR}/"
 cp -f "${REPO_DIR}/plugin/usage_monitor.py" "${PLUGIN_DIR}/"
 cp -f "${REPO_DIR}/plugin/plugin_api.py" "${PLUGIN_DIR}/"
