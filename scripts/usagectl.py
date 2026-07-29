@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     install_cli.add_argument('--repo', default=None, help='path to repo root; defaults to <script>/.. or cwd')
     install_cli.add_argument('--bin-dir', default=None, help='directory to install into (default: ~/.local/bin)')
 
-    install = sub.add_parser('install', help='Optional Hermes integration: install skill + plugin + adapters into ~/.hermes (idempotent)')
+    install = sub.add_parser('install', help='Optional Hermes integration: install skill + plugin + Desktop UI + adapters into ~/.hermes (idempotent)')
     install.add_argument('--repo', default=None, help='path to repo root; defaults to <script>/.. or cwd')
     install.add_argument('--skip-plugin', action='store_true', help='skip hermes plugins enable step')
 
@@ -335,6 +335,7 @@ def install_skill(repo: Path | None = None, *, skip_plugin: bool = False) -> dic
     src = repo or _resolve_repo(None)
     plugin_name = "api-usage-monitor"
     plugin_dst = HERMES_HOME / "plugins" / plugin_name / "dashboard"
+    desktop_plugin_dst = HERMES_HOME / "desktop-plugins" / plugin_name
     skill_dst = HERMES_HOME / "skills" / "productivity" / "api-usage-monitoring"
     adapters_dst = HERMES_HOME / "usage" / "adapters"
     usage_home = HERMES_HOME / "usage"
@@ -344,10 +345,13 @@ def install_skill(repo: Path | None = None, *, skip_plugin: bool = False) -> dic
 
     # 1. Plugin core
     plugin_dst.mkdir(parents=True, exist_ok=True)
+    (plugin_dst / "dist").mkdir(parents=True, exist_ok=True)
     plugin_files = [
         (src / "plugin" / "manifest.json", plugin_dst / "manifest.json"),
         (src / "plugin" / "usage_monitor.py", plugin_dst / "usage_monitor.py"),
         (src / "plugin" / "plugin_api.py", plugin_dst / "plugin_api.py"),
+        # Placeholder for manifest.json's `entry`; the real UI is the desktop plugin.
+        (src / "plugin" / "dist" / "index.js", plugin_dst / "dist" / "index.js"),
     ]
     for src_file, dst_file in plugin_files:
         if src_file.is_file():
@@ -361,7 +365,14 @@ def install_skill(repo: Path | None = None, *, skip_plugin: bool = False) -> dic
         shutil.copytree(dashboard_src, dashboard_dst)
         installed.setdefault("plugin_core", []).append(str(dashboard_dst))
 
-    # 2. External adapters + example configs
+    # 2. Desktop plugin UI (statusbar chip + pane + palette command)
+    desktop_src = src / "plugin" / "desktop" / "plugin.js"
+    if desktop_src.is_file():
+        desktop_plugin_dst.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(desktop_src, desktop_plugin_dst / "plugin.js")
+        installed.setdefault("desktop_plugin", []).append(str(desktop_plugin_dst / "plugin.js"))
+
+    # 3. External adapters + example configs
     adapters_dst.mkdir(parents=True, exist_ok=True)
     usage_home.mkdir(parents=True, exist_ok=True)
     examples_src = src / "examples"
@@ -377,7 +388,7 @@ def install_skill(repo: Path | None = None, *, skip_plugin: bool = False) -> dic
             shutil.copy2(adapter, dst)
             installed.setdefault("adapters", []).append(str(dst))
 
-    # 3. CLI script
+    # 4. CLI script
     scripts_dst = skill_dst / "scripts"
     scripts_dst.mkdir(parents=True, exist_ok=True)
     usagectl_src = src / "scripts" / "usagectl.py"
@@ -386,14 +397,14 @@ def install_skill(repo: Path | None = None, *, skip_plugin: bool = False) -> dic
     dst_script.chmod(0o755)
     installed.setdefault("script", []).append(str(dst_script))
 
-    # 4. SKILL.md
+    # 5. SKILL.md
     skill_dst.mkdir(parents=True, exist_ok=True)
     skill_src = src / "skills" / "api-usage-monitoring" / "SKILL.md"
     if skill_src.is_file():
         shutil.copy2(skill_src, skill_dst / "SKILL.md")
         installed.setdefault("skill", []).append(str(skill_dst / "SKILL.md"))
 
-    # 5. LaunchAgent templates
+    # 6. LaunchAgent templates
     templates_src = src / "templates" / "launchagents"
     if templates_src.is_dir():
         launchagents_dst.mkdir(parents=True, exist_ok=True)
@@ -403,7 +414,7 @@ def install_skill(repo: Path | None = None, *, skip_plugin: bool = False) -> dic
                 shutil.copy2(tmpl, dst)
                 installed.setdefault("launchagents", []).append(str(dst))
 
-    # 6. Enable plugin
+    # 7. Enable plugin
     if not skip_plugin:
         try:
             subprocess.run(["hermes", "plugins", "enable", plugin_name], capture_output=True, text=True, timeout=15)

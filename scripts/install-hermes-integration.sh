@@ -7,6 +7,7 @@ set -euo pipefail
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 PLUGIN_NAME="api-usage-monitor"
 PLUGIN_DIR="${HERMES_HOME}/plugins/${PLUGIN_NAME}/dashboard"
+DESKTOP_PLUGIN_DIR="${HERMES_HOME}/desktop-plugins/${PLUGIN_NAME}"
 SKILL_DIR="${HERMES_HOME}/skills/productivity/api-usage-monitoring"
 ADAPTERS_DIR="${HERMES_HOME}/usage/adapters"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,17 +16,24 @@ echo "=== Usage Monitor — Hermes integration install ==="
 echo ""
 
 # 1. Plugin core
-echo "[1/6] Installing plugin core..."
-mkdir -p "${PLUGIN_DIR}"
+echo "[1/7] Installing plugin core..."
+mkdir -p "${PLUGIN_DIR}/dist"
 cp -f "${REPO_DIR}/plugin/manifest.json" "${PLUGIN_DIR}/"
 cp -f "${REPO_DIR}/plugin/usage_monitor.py" "${PLUGIN_DIR}/"
 cp -f "${REPO_DIR}/plugin/plugin_api.py" "${PLUGIN_DIR}/"
+cp -f "${REPO_DIR}/plugin/dist/index.js" "${PLUGIN_DIR}/dist/"
 rm -rf "${PLUGIN_DIR}/usage_monitor_app"
 cp -R "${REPO_DIR}/usage_monitor_app" "${PLUGIN_DIR}/"
 echo "       → ${PLUGIN_DIR}"
 
-# 2. External adapters (CLI-based)
-echo "[2/6] Installing CLI adapters..."
+# 2. Desktop plugin UI (statusbar chip + pane + palette command)
+echo "[2/7] Installing Desktop plugin UI..."
+mkdir -p "${DESKTOP_PLUGIN_DIR}"
+cp -f "${REPO_DIR}/plugin/desktop/plugin.js" "${DESKTOP_PLUGIN_DIR}/"
+echo "       → ${DESKTOP_PLUGIN_DIR}/plugin.js"
+
+# 3. External adapters (CLI-based)
+echo "[3/7] Installing CLI adapters..."
 mkdir -p "${ADAPTERS_DIR}"
 mkdir -p "${HERMES_HOME}/usage"
 if [ ! -f "${HERMES_HOME}/usage/providers.example.yaml" ] && [ -f "${REPO_DIR}/examples/providers.yaml" ]; then
@@ -41,20 +49,20 @@ for adapter in claude_cli.py kimi_cli.py; do
 done
 echo "       → ${ADAPTERS_DIR}"
 
-# 3. CLI script
-echo "[3/6] Installing usagectl.py..."
+# 4. CLI script
+echo "[4/7] Installing usagectl.py..."
 mkdir -p "${SKILL_DIR}/scripts"
 cp -f "${REPO_DIR}/scripts/usagectl.py" "${SKILL_DIR}/scripts/"
 chmod +x "${SKILL_DIR}/scripts/usagectl.py"
 echo "       → ${SKILL_DIR}/scripts/"
 
-# 4. Skill
-echo "[4/6] Installing skill..."
+# 5. Skill
+echo "[5/7] Installing skill..."
 cp -f "${REPO_DIR}/skills/api-usage-monitoring/SKILL.md" "${SKILL_DIR}/"
 echo "       → ${SKILL_DIR}/SKILL.md"
 
-# 5. LaunchAgent example templates (copied only — never loaded/enabled)
-echo "[5/6] Installing LaunchAgent example templates..."
+# 6. LaunchAgent example templates (copied only — never loaded/enabled)
+echo "[6/7] Installing LaunchAgent example templates..."
 LAUNCHAGENTS_DIR="${HERMES_HOME}/usage/launchagents"
 if [ -d "${REPO_DIR}/templates/launchagents" ]; then
     mkdir -p "${LAUNCHAGENTS_DIR}"
@@ -63,8 +71,8 @@ if [ -d "${REPO_DIR}/templates/launchagents" ]; then
 fi
 echo "       → ${LAUNCHAGENTS_DIR} (examples only; generate real plists with: usagectl.py autostart --output-dir <dir>)"
 
-# 6. Enable plugin
-echo "[6/6] Enabling plugin..."
+# 7. Enable plugin
+echo "[7/7] Enabling plugin..."
 if command -v hermes &>/dev/null; then
     hermes plugins enable "${PLUGIN_NAME}" 2>/dev/null && echo "       Plugin ${PLUGIN_NAME} enabled" || echo "       ⚠  Could not enable plugin (may need restart)"
 else

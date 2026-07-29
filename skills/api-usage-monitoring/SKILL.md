@@ -86,6 +86,10 @@ Served by the standalone app; also mounted under `/api/plugins/api-usage-monitor
 | `/status.json?pretty=true` | GET | JSON |
 | `/` | GET | Static dashboard |
 
+## Hermes Desktop plugin (optional)
+
+`plugin/desktop/plugin.js` registers a status bar chip, a right-hand pane with the provider table, and an `API Usage: Refresh` palette command. It reads the plugin's own `/status` and `/refresh` routes, so it needs the plugin backend installed. `scripts/install-hermes-integration.sh` copies it to `~/.hermes/desktop-plugins/api-usage-monitor/plugin.js`.
+
 ## External Adapters
 
 Drop `.py` files in `~/.config/usagemon/adapters/` with a `check()` function returning a dict/ProviderStatus/list. Ship adapters: `claude_cli.py`, `kimi_cli.py`.

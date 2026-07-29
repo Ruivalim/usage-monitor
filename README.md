@@ -184,6 +184,10 @@ app. If you do run Hermes, `scripts/install-hermes-integration.sh` wires the
 monitor into it as a skill + plugin:
 
 - copies the plugin backend to `~/.hermes/plugins/api-usage-monitor/`;
+- copies the Desktop plugin UI (`plugin/desktop/plugin.js`) to
+  `~/.hermes/desktop-plugins/api-usage-monitor/` — a status bar chip, a right-hand
+  pane with the provider table, and an `API Usage: Refresh` palette command, all
+  reading the plugin's own REST routes;
 - installs the `api-usage-monitoring` skill and `scripts/usagectl.py`;
 - seeds `providers.example.yaml` / `prices.example.yaml` and example LaunchAgent
   templates (copied only, never loaded);
@@ -198,9 +202,11 @@ provider types (`hermes-auth`, `hermes-account-usage`, `anthropic-subscription`,
 `hermes-nous`, `hermes-state-db`) become useful at that point.
 
 > `hermes plugins enable` may warn `Plugin 'api-usage-monitor' is not installed
-> or bundled`. That is harmless: `plugin/manifest.json` points at a desktop-plugin
-> `dist/index.js` that this repo does not build, so Hermes does not recognize the
-> directory as an installed plugin. The standalone backend, tray, and CLI are
+> or bundled`. That is harmless: the `dist/index.js` named by
+> `plugin/manifest.json` is a placeholder, not a built bundle — there is no build
+> step here — so Hermes may not recognize the directory as an installed plugin.
+> The Desktop UI is loaded from `desktop-plugins/` and is unaffected, as are the
+> plugin REST routes. The standalone backend, tray, and CLI are
 > unaffected.
 
 `scripts/uninstall-hermes-integration.sh` removes what that installer created
