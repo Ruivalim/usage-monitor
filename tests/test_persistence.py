@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Snapshot JSONL persistence and latest_snapshot."""
 from __future__ import annotations
 

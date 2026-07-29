@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Optional macOS menu bar app for the standalone usage monitor.
 
 The tray is a thin, fast view: it reads the latest persisted snapshot (a

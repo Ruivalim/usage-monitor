@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """App settings (``config.yaml``): dashboard defaults and dashboard/API auth.
 
 Separate from ``providers.yaml`` on purpose: that file describes *what* to

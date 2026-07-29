@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Price table loading and token-cost estimation.
 
 Pure module: no network, no credentials, no Hermes imports. Price tables are

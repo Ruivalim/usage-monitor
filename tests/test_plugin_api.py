@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Hermes plugin API routes (mounted by Hermes, no real gateway needed)."""
 from __future__ import annotations
 

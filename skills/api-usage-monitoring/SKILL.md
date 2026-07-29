@@ -16,16 +16,16 @@ Provider-agnostic API Usage Monitor — a standalone app that runs on its own. C
 
 ## CLI Usage
 
-`usagemon` is the standalone wrapper installed by `make install-cli`; it runs the repo's own venv. Equivalent to `<repo>/.venv/bin/python <repo>/scripts/usagectl.py`.
+`usage-monitor` is the public standalone CLI installed by the Python package. `usagectl` remains as a backwards-compatible alias. `usagemon` is the repo-pinned wrapper installed by `make install-cli`; it runs the repo's own venv. Equivalent to `<repo>/.venv/bin/python <repo>/scripts/usagectl.py`.
 
 ```bash
-usagemon status
-usagemon status --json --pretty
-usagemon status --notify --snooze-seconds 300
-usagemon latest --limit 3 --pretty
-usagemon serve --port 9097 --refresh-interval 900
-usagemon menubar --interval 300
-usagemon autostart --output-dir /tmp/usage-monitor-agents
+usage-monitor status
+usage-monitor status --json --pretty
+usage-monitor status --notify --snooze-seconds 300
+usage-monitor latest --limit 3 --pretty
+usage-monitor serve --port 9097 --refresh-interval 900
+usage-monitor menubar --interval 300
+usage-monitor autostart --output-dir /tmp/usage-monitor-agents
 ```
 
 Appends snapshots to `~/.config/usagemon/snapshots.jsonl`.

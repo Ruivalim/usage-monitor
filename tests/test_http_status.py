@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """HTTP status -> monitor status mapping (_status_from_http)."""
 from __future__ import annotations
 

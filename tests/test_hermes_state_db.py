@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Tests for the hermes-state-db read-only SQLite adapter.
 
 All databases are temporary sqlite files built in tmp_path. The adapter is

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Alert dedup/snooze state and macOS notification plumbing.
 
 All tests use fake snapshots and a fake command runner: no real state file

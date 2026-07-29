@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Coercion of adapter return values into ProviderStatus / UsageWindow."""
 from __future__ import annotations
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Per-provider relevance overrides (overrides.json)."""
 from __future__ import annotations
 

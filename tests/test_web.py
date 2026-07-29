@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """FastAPI endpoints via TestClient (no server, no network)."""
 from __future__ import annotations
 

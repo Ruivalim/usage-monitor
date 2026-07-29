@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 # Backward-compatible shim for Hermes plugin installs and old external adapters.

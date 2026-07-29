@@ -2,8 +2,10 @@
 
 `usage-monitor` can run standalone first:
 
-1. standalone local app (`usagectl serve`), useful outside Hermes;
+1. standalone local app (`usage-monitor serve`), useful outside Hermes;
 2. optional Hermes plugin backend mounted under `/api/plugins/api-usage-monitor`.
+
+`usagectl` remains as a backwards-compatible alias for existing scripts.
 
 ## Terminal commands
 
@@ -20,15 +22,15 @@ Installed editable:
 
 ```bash
 python3.11 -m pip install -e .
-usagectl status
-usagectl status --json --pretty
-usagectl latest --limit 5 --pretty
+usage-monitor status
+usage-monitor status --json --pretty
+usage-monitor latest --limit 5 --pretty
 ```
 
 ## Standalone dashboard
 
 ```bash
-usagectl serve --port 9097
+usage-monitor serve --port 9097
 ```
 
 Open:

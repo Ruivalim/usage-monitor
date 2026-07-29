@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Pytest harness for usage_monitor_app.
 
 All USAGE_MONITOR_* state is redirected to a temporary directory BEFORE

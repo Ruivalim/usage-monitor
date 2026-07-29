@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """macOS LaunchAgent plist generation for the standalone usage monitor.
 
 Generates launchd property lists for the standalone FastAPI backend

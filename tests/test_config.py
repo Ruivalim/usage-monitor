@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Config loading from YAML and JSON."""
 from __future__ import annotations
 

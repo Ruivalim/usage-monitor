@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Built-in adapters with monkeypatched fake HTTP payloads.
 
 _http_get_json is replaced with fakes, so no real network or credentials

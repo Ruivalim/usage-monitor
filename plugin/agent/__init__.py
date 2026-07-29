@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Agent-side registration stub for the optional Hermes integration.
 
 Hermes only discovers a plugin directory that holds a ``plugin.yaml`` *and* an

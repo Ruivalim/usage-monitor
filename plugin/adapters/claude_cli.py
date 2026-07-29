@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """
 Claude subscription usage — via `claude -p "/usage"` CLI command.
 

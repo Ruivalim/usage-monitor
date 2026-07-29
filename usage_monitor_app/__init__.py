@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 from .core import (
     Money,
     UsageWindow,

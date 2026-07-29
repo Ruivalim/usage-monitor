@@ -8,6 +8,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Public CLI entry point `usage-monitor` while keeping `usagectl` as a backwards-compatible alias.
+- SPDX MIT headers across Python source files.
 - Standalone Python package `usage_monitor_app`.
 - Config-driven provider registry loaded from `~/.hermes/usage/providers.yaml`.
 - Credential sources for Keychain, env vars, literal test values, and optional Hermes credential pool.

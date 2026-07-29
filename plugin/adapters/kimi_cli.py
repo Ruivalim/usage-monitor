@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """
 Kimi Code subscription usage — via the managed OAuth `/usages` endpoint.
 

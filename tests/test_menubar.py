@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Headless tests for the optional rumps menu bar app.
 
 Everything GUI-facing is faked: a FakeRumps module stands in for `rumps`,

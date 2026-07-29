@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Local alert dedup/snooze state and macOS notification plumbing.
 
 Pure-ish module: no network, no credentials, no Hermes imports. The only

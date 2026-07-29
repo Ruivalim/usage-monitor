@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """LaunchAgent plist generation tests.
 
 All filesystem writes go to tmp_path; nothing is loaded/enabled, no launchctl

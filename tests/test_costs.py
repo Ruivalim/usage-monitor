@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Cost estimation from fake price tables. No network, no real prices."""
 from __future__ import annotations
 

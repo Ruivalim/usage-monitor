@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Translations for the dashboard and the macOS tray (``en`` and ``pt-BR``).
 
 One flat key/value map per language. ``en`` is the source of truth: every

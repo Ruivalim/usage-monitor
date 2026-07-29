@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Registry dispatch via collect_status with placeholder providers."""
 from __future__ import annotations
 
