@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Removes only the optional Hermes integration. The standalone app (LaunchAgents,
+# ~/.local/bin/usagemon, ~/.config/usagemon) is left alone — use `make uninstall-tray`
+# and `make uninstall-cli` for those.
 set -euo pipefail
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
@@ -6,7 +9,7 @@ PLUGIN_NAME="api-usage-monitor"
 PLUGIN_DIR="${HERMES_HOME}/plugins/${PLUGIN_NAME}"
 SKILL_DIR="${HERMES_HOME}/skills/productivity/api-usage-monitoring"
 
-echo "=== Hermes Usage Monitor — Uninstall ==="
+echo "=== Usage Monitor — Hermes integration uninstall ==="
 
 # 1. Disable plugin
 if command -v hermes &>/dev/null; then
@@ -33,16 +36,11 @@ if [ -d "${SKILL_DIR}" ]; then
     rm -rf "${SKILL_DIR}"
 fi
 
-# 5. Remove CLI wrapper
-if [ -f "${HOME}/.local/bin/usagemon" ]; then
-    echo "Removing ${HOME}/.local/bin/usagemon..."
-    rm -f "${HOME}/.local/bin/usagemon"
-fi
-
-# 6. Leave adapters and snapshots (user customizations)
+# 5. Leave adapters and snapshots (user customizations)
 echo ""
 echo "Done."
 echo "Note: ~/.hermes/usage/adapters/ preserved (may contain custom adapters)"
 echo "      ~/.hermes/usage/snapshots.jsonl preserved"
 echo "      ~/.hermes/usage/launchagents/ preserved (example templates; remove manually if unwanted)"
+echo "      ~/.local/bin/usagemon preserved (standalone CLI; remove with 'make uninstall-cli')"
 echo "      Any plists you copied into ~/Library/LaunchAgents are untouched; unload with launchctl bootout first"

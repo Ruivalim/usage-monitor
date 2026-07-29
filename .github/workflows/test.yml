@@ -36,7 +36,7 @@ jobs:
         run: python -m compileall -q usage_monitor_app tests scripts plugin
 
       - name: Check shell scripts
-        run: bash -n install.sh uninstall.sh
+        run: bash -n scripts/install-hermes-integration.sh scripts/uninstall-hermes-integration.sh
 
       - name: Check whitespace
         run: git diff --check

@@ -354,6 +354,11 @@ def test_main_with_fake_rumps(monkeypatch):
     fake = fake_rumps()
     monkeypatch.setattr(menubar, "_load_rumps", lambda: fake)
     monkeypatch.setattr(menubar, "collect_status", lambda persist=True: make_snapshot(overall="ok"))
+    # main() starts a daemon refresh thread. Without this, the thread does a real
+    # (failing) HTTP POST and then falls back to the real collect_status once
+    # monkeypatch has been undone, appending a snapshot to whatever
+    # core.SNAPSHOT_FILE a later test points at.
+    monkeypatch.setattr(menubar, "make_refresh_requester", lambda *a, **k: (lambda: None))
     rc = menubar.main(["--interval", "0", "--poll-interval", "0", "--dashboard-url", "http://x:1"])
     assert rc == 0
 

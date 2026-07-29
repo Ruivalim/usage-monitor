@@ -67,6 +67,10 @@ usagectl auth enable                # optional Basic Auth for dashboard + API
 - **macOS autostart**: `usagectl autostart` only *generates* LaunchAgent plists —
   it never calls `launchctl` and writes only where you tell it to. `make
   install-tray` / `make uninstall-tray` do the loading step for you.
+- **CLI on PATH**: `usagectl` comes from `make setup` (editable install) and
+  needs the venv active. `make install-cli` additionally drops a `usagemon`
+  wrapper in `~/.local/bin` that pins this checkout's venv, so it works from any
+  shell; `make uninstall-cli` removes it.
 - **Snapshots**: appended to `~/.config/usagemon/snapshots.jsonl`.
 
 Details and every flag: [docs/USAGE.md](docs/USAGE.md).
@@ -175,15 +179,18 @@ API keys, tokens, or raw headers. Guide: [docs/EXTENDING.md](docs/EXTENDING.md).
 
 ## Hermes integration (optional)
 
-Everything above works without Hermes. If you do run Hermes, `./install.sh`
-additionally wires the monitor into it:
+Everything above works without Hermes, and nothing here is required to run the
+app. If you do run Hermes, `scripts/install-hermes-integration.sh` wires the
+monitor into it as a skill + plugin:
 
 - copies the plugin backend to `~/.hermes/plugins/api-usage-monitor/`;
 - installs the `api-usage-monitoring` skill and `scripts/usagectl.py`;
-- installs a `usagemon` wrapper in `~/.local/bin`;
 - seeds `providers.example.yaml` / `prices.example.yaml` and example LaunchAgent
   templates (copied only, never loaded);
 - runs `hermes plugins enable api-usage-monitor`.
+
+It never touches the standalone install: `~/.local/bin/usagemon`, the
+LaunchAgents, and `~/.config/usagemon` are left alone.
 
 The plugin backend mirrors the data routes under
 `/api/plugins/api-usage-monitor/` once the gateway restarts. Hermes-backed
@@ -196,8 +203,8 @@ provider types (`hermes-auth`, `hermes-account-usage`, `anthropic-subscription`,
 > directory as an installed plugin. The standalone backend, tray, and CLI are
 > unaffected.
 
-`./uninstall.sh` removes what the installer created and preserves
-`~/.config/usagemon/snapshots.jsonl`.
+`scripts/uninstall-hermes-integration.sh` removes what that installer created
+and preserves `~/.config/usagemon/snapshots.jsonl`.
 
 ## Snapshot format
 

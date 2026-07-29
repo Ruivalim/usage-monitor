@@ -114,9 +114,8 @@ def _agent_path(config: AutostartConfig) -> str:
     """PATH for the LaunchAgent environment.
 
     launchd starts agents with a minimal PATH, which breaks adapters that
-    shell out to CLIs (e.g. `hermes`). Prepend the python executable's bin
-    dir (covers `hermes` when the agent runs on the Hermes venv) and the
-    usual user/system bin dirs.
+    shell out to CLIs (e.g. `claude`, `hermes`). Prepend the python executable's
+    bin dir and the usual user/system bin dirs so those stay reachable.
     """
     python_bin = str(Path(config.python_executable).expanduser().parent)
     home = Path.home()

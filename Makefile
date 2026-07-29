@@ -15,6 +15,7 @@ APP_HOME ?= $(HOME)/.config/usagemon
 LOG_DIR ?= $(APP_HOME)/logs
 OUT_DIR ?= .launchagents
 LAUNCHAGENTS_DIR ?= $(HOME)/Library/LaunchAgents
+BIN_DIR ?= $(HOME)/.local/bin
 
 DEFAULT_LABEL_PREFIX ?= com.usage-monitor
 LEGACY_LABEL_PREFIXES ?= com.hermes-usage-monitor
@@ -35,7 +36,7 @@ TRAY_INTERVAL_ARG := $(if $(MENUBAR_INTERVAL),--interval "$(MENUBAR_INTERVAL)",)
 # LaunchAgents to run under another interpreter.
 AGENT_PYTHON ?= $(CURDIR)/$(VENV_PYTHON)
 
-.PHONY: help setup install install-dev install-hermes-integration test lint security-scan security-scan-history scan-secrets status server tray autostart-generate install-tray uninstall-tray restart-tray update status-tray logs clean clean-launchagents
+.PHONY: help setup install install-cli uninstall-cli install-dev install-hermes-integration test lint security-scan security-scan-history scan-secrets status server tray autostart-generate install-tray uninstall-tray restart-tray update status-tray logs clean clean-launchagents
 
 help:
 	@echo "Usage Monitor targets:"
@@ -47,6 +48,8 @@ help:
 	@echo "  make server                run local dashboard/API foreground at $(DASHBOARD_URL)"
 	@echo "  make tray                  run macOS menu bar app foreground"
 	@echo "  make install / install-tray install/update standalone LaunchAgents"
+	@echo "  make install-cli           install the standalone 'usagemon' wrapper into $(BIN_DIR)"
+	@echo "  make uninstall-cli         remove $(BIN_DIR)/usagemon"
 	@echo "  make uninstall-tray        unload/remove standalone LaunchAgents"
 	@echo "  make restart-tray          reinstall/reload standalone LaunchAgents"
 	@echo "  make status-tray           print launchctl state"
@@ -76,7 +79,7 @@ status: setup
 test: setup
 	$(VENV_PYTHON) -m pytest -q
 	$(VENV_PYTHON) -m compileall -q usage_monitor_app tests scripts plugin
-	bash -n install.sh uninstall.sh
+	bash -n scripts/install-hermes-integration.sh scripts/uninstall-hermes-integration.sh
 	git diff --check
 
 lint: test
@@ -140,6 +143,13 @@ restart-tray: uninstall-tray install-tray
 
 update: setup restart-tray
 	@echo "Update complete. Dashboard: $(DASHBOARD_URL)"
+
+install-cli: setup
+	$(USAGECTL) install-cli --repo "$(CURDIR)" --bin-dir "$(BIN_DIR)"
+
+uninstall-cli:
+	rm -f "$(BIN_DIR)/usagemon"
+	@echo "Removed $(BIN_DIR)/usagemon"
 
 install-hermes-integration: setup
 	$(USAGECTL) install

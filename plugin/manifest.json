@@ -1,7 +1,7 @@
 {
   "name": "api-usage-monitor",
   "label": "API Usage Monitor",
-  "description": "Provider-agnostic usage, balance, quota and rate-limit status for all Hermes credentials — subscriptions + credits",
+  "description": "Provider-agnostic usage, balance, quota and rate-limit status for every configured provider — subscriptions + credits",
   "icon": "Activity",
   "version": "0.2.0",
   "entry": "dist/index.js",

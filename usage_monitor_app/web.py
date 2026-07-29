@@ -16,8 +16,8 @@ from .core import _to_plain, collect_status, latest_snapshot, load_overrides, re
 
 
 def _autostart_config() -> _autostart.AutostartConfig:
-    # The running interpreter is the one the agents should use (Hermes venv
-    # when launched via the Makefile's AGENT_PYTHON, repo venv otherwise).
+    # The running interpreter is the one the agents should use (repo venv by
+    # default; whatever the Makefile's AGENT_PYTHON overrides it to otherwise).
     return _autostart.AutostartConfig(python_executable=sys.executable)
 
 

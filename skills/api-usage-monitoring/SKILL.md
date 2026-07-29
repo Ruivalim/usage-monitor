@@ -1,34 +1,34 @@
 ---
 name: api-usage-monitoring
-description: Use when Rui wants Hermes to inspect connected LLM/API providers for balance, credits, usage windows, rate-limit/quota state, or to extend the local API Usage Monitor plugin with new provider adapters.
+description: Use when inspecting connected LLM/API providers for balance, credits, usage windows, rate-limit/quota state, or to extend the local API Usage Monitor with new provider adapters.
 version: 0.2.0
 author: Rui Valim
 license: MIT
 platforms: [macos, linux]
 metadata:
-  hermes:
-    tags: [api-usage, credits, quotas, providers, desktop-plugin, monitoring, subscriptions]
-    category: productivity
-    related_skills: [hermes-agent, hermes-desktop-plugins]
+  tags: [api-usage, credits, quotas, providers, monitoring, subscriptions]
+  category: productivity
 ---
 
 # API Usage Monitoring
 
-Provider-agnostic API Usage Monitor — standalone app + Hermes plugin. Checks balances, usage windows, quotas, rate-limits for subscriptions (Claude, Kimi) and credits (DeepSeek, Codex, Nous) across configured providers.
+Provider-agnostic API Usage Monitor — a standalone app that runs on its own. Checks balances, usage windows, quotas, rate-limits for subscriptions (Claude, Kimi) and credits (DeepSeek, Codex, Nous) across configured providers.
 
 ## CLI Usage
 
+`usagemon` is the standalone wrapper installed by `make install-cli`; it runs the repo's own venv. Equivalent to `<repo>/.venv/bin/python <repo>/scripts/usagectl.py`.
+
 ```bash
-~/.hermes/skills/productivity/api-usage-monitoring/scripts/usagectl.py status
-~/.hermes/skills/productivity/api-usage-monitoring/scripts/usagectl.py status --json --pretty
-~/.hermes/skills/productivity/api-usage-monitoring/scripts/usagectl.py status --notify --snooze-seconds 300
-~/.hermes/skills/productivity/api-usage-monitoring/scripts/usagectl.py latest --limit 3 --pretty
-~/.hermes/skills/productivity/api-usage-monitoring/scripts/usagectl.py serve --port 9097 --refresh-interval 900
-~/.hermes/skills/productivity/api-usage-monitoring/scripts/usagectl.py menubar --interval 300
-~/.hermes/skills/productivity/api-usage-monitoring/scripts/usagectl.py autostart --output-dir /tmp/usage-monitor-agents
+usagemon status
+usagemon status --json --pretty
+usagemon status --notify --snooze-seconds 300
+usagemon latest --limit 3 --pretty
+usagemon serve --port 9097 --refresh-interval 900
+usagemon menubar --interval 300
+usagemon autostart --output-dir /tmp/usage-monitor-agents
 ```
 
-Uses Hermes venv Python. Appends snapshots to `~/.config/usagemon/snapshots.jsonl`.
+Appends snapshots to `~/.config/usagemon/snapshots.jsonl`.
 
 Repo Makefile shortcuts:
 
@@ -51,6 +51,8 @@ security add-generic-password -a default -s api-usage-monitor/deepseek -w 'sk-..
 
 Supported config types: `deepseek`, `kimi`, `openai-compatible`, `generic-http`, `placeholder`, `hermes-account-usage`, `anthropic-subscription`, `hermes-auth`, `hermes-nous`, `hermes-state-db`.
 
+The `hermes-*` types (plus `anthropic-subscription`) are an optional integration: without a Hermes install they report `unavailable` and everything else keeps working. Install the optional skill/plugin bridge with `scripts/install-hermes-integration.sh`.
+
 External price table: `~/.config/usagemon/prices.yaml` / `USAGE_MONITOR_PRICES_FILE`.
 
 Alerts: `~/.config/usagemon/alert_state.json`, `USAGE_MONITOR_ALERT_SNOOZE_SECONDS`, `USAGE_MONITOR_ALERT_NOTIFY=0` to suppress real osascript notifications.
@@ -63,16 +65,16 @@ Menu bar app is optional and requires `rumps` (`pip install 'usage-monitor[menub
 |----------|--------|------|
 | Claude / Anthropic | `claude -p "/usage"` CLI + OAuth account_usage | Subscription |
 | Kimi Coding | OAuth `api.kimi.com/coding/v1/usages` | Subscription |
-| OpenAI Codex | Hermes account_usage | Subscription |
+| OpenAI Codex | Hermes `account_usage` (optional) | Subscription |
 | DeepSeek | `/user/balance` API | Credits |
 | Nous Portal | Portal credit lines | Credits |
 | Z.ai / GLM | Credential pool placeholder | Credits |
-| Hermes auth | `hermes auth list` | Auth state |
-| Hermes state.db | `session_model_usage` SQLite read-only (`mode=ro`) | Recorded usage |
+| Hermes auth | `hermes auth list` (optional) | Auth state |
+| Hermes state.db | `session_model_usage` SQLite read-only, `mode=ro` (optional) | Recorded usage |
 
 ## REST API
 
-Mounted under `/api/plugins/api-usage-monitor`:
+Served by the standalone app; also mounted under `/api/plugins/api-usage-monitor` when the optional Hermes plugin is installed:
 
 | Route | Method | Purpose |
 |---|---|---|

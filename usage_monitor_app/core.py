@@ -286,19 +286,6 @@ def set_provider_relevant(provider_id: str, relevant: bool, path: Path | None = 
     return overrides
 
 
-def _default_providers() -> list[dict[str, Any]]:
-    # Deprecated compatibility helper: provider defaults used to be Hermes-first.
-    # New standalone installs intentionally start with an empty provider registry
-    # unless the user creates ~/.config/usagemon/providers.yaml.
-    return [
-        {"id": "deepseek", "label": "DeepSeek", "type": "deepseek", "credential": {"source": "hermes", "provider": "deepseek"}},
-        {"id": "zai", "label": "Z.ai / GLM", "type": "placeholder", "credential": {"source": "hermes", "provider": "zai"}, "message": "No known public balance endpoint configured."},
-        {"id": "openai-codex", "label": "OpenAI Codex / ChatGPT", "type": "hermes-account-usage", "provider": "openai-codex"},
-        {"id": "nous", "label": "Nous Portal", "type": "hermes-nous"},
-        {"id": "hermes-auth", "label": "Hermes auth", "type": "hermes-auth"},
-    ]
-
-
 def _http_get_json(url: str, token: str | None = None, *, timeout: float = 12.0, headers: Optional[dict[str, str]] = None) -> tuple[int, Any]:
     if httpx is None:
         raise RuntimeError("httpx is not available in this Python environment")

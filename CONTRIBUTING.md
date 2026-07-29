@@ -33,7 +33,7 @@ The test target runs:
 
 - `pytest`
 - `compileall` over package, tests, scripts, and plugin files
-- shell syntax checks for `install.sh` and `uninstall.sh`
+- shell syntax checks for `scripts/install-hermes-integration.sh` and `scripts/uninstall-hermes-integration.sh`
 - `git diff --check`
 
 For a narrower loop while editing:
