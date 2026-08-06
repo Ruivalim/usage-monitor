@@ -51,12 +51,14 @@ STRINGS = {
         "show_auth": "Show auth", "startup": "Open at startup", "no_providers": "No providers configured",
         "collecting": "collecting…", "refresh_failed": "refresh failed", "left": "left",
         "resets_in": "resets in", "now": "now", "muted": "muted",
+        "show_inactive": "Show inactive", "hidden_inactive": "%d hidden (inactive)",
     },
     "pt": {
         "quit": "Fechar Usage Monitor", "refresh": "Atualizar agora", "dashboard": "Abrir dashboard",
         "show_auth": "Mostrar auth", "startup": "Abrir no startup", "no_providers": "Nenhum provider configurado",
         "collecting": "coletando…", "refresh_failed": "falha ao atualizar", "left": "restante",
         "resets_in": "reset em", "now": "agora", "muted": "mudo",
+        "show_inactive": "Mostrar inativos", "hidden_inactive": "%d oculto(s) (inativos)",
     },
 }
 
@@ -151,6 +153,16 @@ def provider_line_from_dict(p: dict, *, language: str = "en") -> str:
     if p.get("relevant") is False:
         line += f" ({_t(language, 'muted')})"
     return line
+
+
+INACTIVE_STATUSES = frozenset({"unavailable", "unknown"})
+
+
+def is_inactive(p: dict) -> bool:
+    """A provider carrying no usable reading: no credential, no endpoint, or muted."""
+    if p.get("relevant") is False:
+        return True
+    return str(p.get("status")) in INACTIVE_STATUSES
 
 
 def load_latest_snapshot() -> Optional[dict]:
@@ -253,6 +265,7 @@ class UsageMonitorMenuBarApp:
         self._language = _lang(language)
         self._webbrowser = webbrowser_module if webbrowser_module is not None else webbrowser
         self._show_auth = False
+        self._show_inactive = False
         self._refreshing = False
         self._refresh_error: Optional[str] = None
         self._pending_reload = True
@@ -263,6 +276,7 @@ class UsageMonitorMenuBarApp:
         self.refresh_item = rumps_module.MenuItem(_t(self._language, "refresh"), callback=self.refresh_now)
         self.dashboard_item = rumps_module.MenuItem(_t(self._language, "dashboard"), callback=self.open_dashboard)
         self.auth_item = rumps_module.MenuItem(_t(self._language, "show_auth"), callback=self.toggle_auth)
+        self.inactive_item = rumps_module.MenuItem(_t(self._language, "show_inactive"), callback=self.toggle_inactive)
         self.startup_item = rumps_module.MenuItem(_t(self._language, "startup"), callback=self.toggle_startup)
         self.quit_item = rumps_module.MenuItem(_t(self._language, "quit"), callback=self.quit_app)
         self._timer = None
@@ -297,6 +311,11 @@ class UsageMonitorMenuBarApp:
 
     def toggle_auth(self, sender: Any = None) -> None:
         self._show_auth = not self._show_auth
+        self._pending_reload = True
+        self._tick(None)
+
+    def toggle_inactive(self, sender: Any = None) -> None:
+        self._show_inactive = not self._show_inactive
         self._pending_reload = True
         self._tick(None)
 
@@ -363,23 +382,32 @@ class UsageMonitorMenuBarApp:
             return
         self.app.title = overall_title_from_dict(snap)
         providers = snap.get("providers") or []
-        lines = [
-            provider_line_from_dict(p, language=self._language)
-            for p in providers
+        visible = [
+            p for p in providers
             if self._show_auth or not str(p.get("id", "")).startswith("auth:")
         ]
+        hidden = 0
+        if not self._show_inactive:
+            kept = [p for p in visible if not is_inactive(p)]
+            hidden = len(visible) - len(kept)
+            visible = kept
+        lines = [provider_line_from_dict(p, language=self._language) for p in visible]
+        if hidden:
+            lines.append(_t(self._language, "hidden_inactive") % hidden)
         if self._refresh_error:
             lines.insert(0, f"⚠️ {_t(self._language, 'refresh_failed')}: {self._refresh_error}")
         self._rebuild_menu(lines or [_t(self._language, "no_providers")])
 
     def _rebuild_menu(self, provider_lines: list[str]) -> None:
         self.auth_item.state = 1 if self._show_auth else 0
+        self.inactive_item.state = 1 if self._show_inactive else 0
         self.startup_item.state = 1 if self._startup_installed() else 0
         menu = self.app.menu
         menu.clear()
         menu.add(self.refresh_item)
         menu.add(self.dashboard_item)
         menu.add(self.auth_item)
+        menu.add(self.inactive_item)
         menu.add(self.startup_item)
         menu.add(self._rumps.separator)
         for line in provider_lines:

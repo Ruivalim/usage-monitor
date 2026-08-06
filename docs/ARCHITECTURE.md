@@ -87,7 +87,7 @@ The scheduler is intentionally simple: one daemon thread calls `collect_status(p
 
 ## Menu bar app
 
-`usage_monitor_app/menubar.py` is an optional `rumps`-based macOS menu bar app (`usagectl menubar`, extra `.[menubar]`). It renders the overall status icon plus one line per provider, and offers `Refresh Now`, `Open Dashboard`, and `Quit`. It calls `core.collect_status` directly — it does not start, detect, or manage the FastAPI backend; `Open Dashboard` only opens the configured URL in the browser. `rumps` is imported lazily inside the entrypoint, so the module (and the rest of the package) stays importable without it; the `rumps` module, the collect callable, and `webbrowser` are all injectable so tests run headless with fakes.
+`usage_monitor_app/menubar.py` is an optional `rumps`-based macOS menu bar app (`usagectl menubar`, extra `.[menubar]`). It renders the overall status icon plus one line per provider, and offers `Refresh Now`, `Open Dashboard`, `Show auth`, `Show inactive`, and `Quit`. Providers with nothing to report — status `unavailable` or `unknown`, or muted via `relevant: false` — are hidden behind `Show inactive`, with a trailing count of what was hidden. It calls `core.collect_status` directly — it does not start, detect, or manage the FastAPI backend; `Open Dashboard` only opens the configured URL in the browser. `rumps` is imported lazily inside the entrypoint, so the module (and the rest of the package) stays importable without it; the `rumps` module, the collect callable, and `webbrowser` are all injectable so tests run headless with fakes.
 
 ## Autostart (LaunchAgents)
 

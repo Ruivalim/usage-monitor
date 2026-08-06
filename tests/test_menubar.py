@@ -213,6 +213,42 @@ def test_auth_providers_hidden_until_toggled():
     assert app.auth_item.state == 0
 
 
+def test_inactive_providers_hidden_until_toggled():
+    providers = [
+        {"id": "deepseek", "label": "DeepSeek", "status": "ok"},
+        {"id": "zai", "label": "Z.ai / GLM", "status": "unknown"},
+        {"id": "gcp", "label": "GCP Billing", "status": "unavailable"},
+    ]
+    app = build_app(load_snapshot=lambda: make_snapshot_dict(providers=providers))
+    titles = menu_titles(app)
+    assert any(t.startswith("🟢 DeepSeek") for t in titles)
+    assert not any("Z.ai / GLM" in t for t in titles)
+    assert not any("GCP Billing" in t for t in titles)
+    assert any("2 hidden (inactive)" in t for t in titles)
+
+    app.inactive_item.callback(app.inactive_item)
+    titles = menu_titles(app)
+    assert any("Z.ai / GLM" in t for t in titles)
+    assert any("GCP Billing" in t for t in titles)
+    assert not any("hidden (inactive)" in t for t in titles)
+    assert app.inactive_item.state == 1
+
+    app.inactive_item.callback(app.inactive_item)
+    assert not any("Z.ai / GLM" in t for t in menu_titles(app))
+    assert app.inactive_item.state == 0
+
+
+def test_muted_providers_count_as_inactive():
+    providers = [
+        {"id": "deepseek", "label": "DeepSeek", "status": "ok"},
+        {"id": "nous", "label": "Nous Portal", "status": "quota_exhausted", "relevant": False},
+    ]
+    app = build_app(load_snapshot=lambda: make_snapshot_dict(providers=providers))
+    assert not any("Nous Portal" in t for t in menu_titles(app))
+    app.inactive_item.callback(app.inactive_item)
+    assert any("Nous Portal" in t for t in menu_titles(app))
+
+
 def test_startup_toggle_installs_and_uninstalls():
     startup = FakeStartup(installed=False)
     app = build_app(startup=startup)
