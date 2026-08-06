@@ -117,9 +117,7 @@ The schema is browsable at `/docs` and `/openapi.json`.
 | Any OpenAI-compatible server | `/models` or `/credits` | Reachability / credits |
 | Claude / Anthropic | Hermes Anthropic account usage | Subscription windows |
 | OpenAI Codex / ChatGPT | Hermes `account_usage` | Subscription windows |
-| Google AI Plus | Hermes `account_usage` | Subscription windows |
 | Google Antigravity (`agy`) | Local language-server RPC | 7-day plan quota per model pool |
-| Gemini API | `generativelanguage.googleapis.com` | Reachability (no balance API) |
 | Nous Portal | Portal credit lines via Hermes | Credits |
 | Z.ai / GLM | Placeholder entry | — |
 | Hermes auth / `state.db` | `hermes auth list`, read-only SQLite | Auth state / recorded usage |

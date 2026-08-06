@@ -230,10 +230,6 @@ balance, credits, credit, available, remaining
 | `USAGE_MONITOR_AUTH_PASSWORD` | unset | Basic Auth plaintext from env |
 | `USAGE_MONITOR_AUTH_PASSWORD_HASH` | unset | Basic Auth PBKDF2 hash from env |
 | `USAGE_MONITOR_LANGUAGE` / `USAGE_MONITOR_LANG` | config value | Dashboard/tray language (`en`/`pt`) |
-| `GCP_ACCESS_TOKEN` | unset | OAuth token for `gcp_billing.py` adapter |
-| `GCP_PROJECT_ID` | unset | GCP project ID for `gcp_billing.py` adapter |
-| `GCP_BILLING_ACCOUNT_ID` | unset | GCP billing account ID for `gcp_billing.py` adapter |
-| `USAGE_MONITOR_GCP_BUDGET_USD` | unset | Target monthly GCP budget for `gcp_billing.py` adapter |
 | `USAGE_MONITOR_AGY_BIN` | PATH lookup | Path to the `agy` binary for `antigravity.py` adapter |
 | `USAGE_MONITOR_AGY_TIMEOUT` | `30` | Seconds to wait for `agy` quota data |
 | `USAGE_MONITOR_AGY_SETTLE` | `1.0` | Extra settle seconds before the final quota read |

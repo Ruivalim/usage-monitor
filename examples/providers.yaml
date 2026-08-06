@@ -103,16 +103,6 @@ providers:
       source: hermes
       provider: zai
 
-  # Gemini API: checks if the API is reachable. Google does not provide an endpoint
-  # to fetch the credit balance, so this only validates the API key.
-  - id: gemini
-    label: Gemini API
-    type: gemini
-    enabled: false
-    credential:
-      source: env
-      name: GEMINI_API_KEY
-
   # --- Subscription / quota windows (require Hermes) -----------------------
 
   # Bridges Hermes `agent.account_usage` for OAuth-subscription providers.
@@ -127,12 +117,6 @@ providers:
   - id: claude
     label: Claude / Anthropic
     type: anthropic-subscription
-    enabled: false
-
-  # Same bridge, pre-pointed at Google AI Plus; `provider` defaults to `google-ai-plus`.
-  - id: google
-    label: Google AI Plus
-    type: google-ai-plus
     enabled: false
 
   # Nous portal credit lines via Hermes. Marks `quota_exhausted` when the portal
@@ -167,15 +151,6 @@ providers:
 # ~/.config/usagemon/adapters/ without touching this file — see docs/EXTENDING.md.
 #
 # --- External adapters (shipped in plugin/adapters/) -------------------------
-#
-# Google Cloud (GCP) Billing (gcp_billing.py):
-#   Queries the Google Cloud Billing REST API for billing account status,
-#   project billing info, and budget tracking for Gemini API / Vertex AI.
-#   Env vars:
-#     GCP_ACCESS_TOKEN                OAuth access token (or gcloud auth print-access-token)
-#     GCP_PROJECT_ID                  GCP project ID (optional)
-#     GCP_BILLING_ACCOUNT_ID          GCP billing account ID (optional)
-#     USAGE_MONITOR_GCP_BUDGET_USD    Target monthly budget in USD (optional)
 #
 # Google Antigravity (antigravity.py):
 #   Reads the 7-day plan quota out of the `agy` CLI's local language-server RPC
