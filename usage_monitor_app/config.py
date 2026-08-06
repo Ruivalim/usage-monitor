@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .core import CONFIG_FILE, _config_load
+from .core import APP_HOME, CONFIG_FILE, _config_load
 
 try:
     import yaml  # type: ignore
@@ -60,6 +60,52 @@ DEFAULT_MENUBAR_SECONDS = 300
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
+
+LOCAL_TOKEN_HEADER = "x-usage-monitor-token"
+
+
+def local_token_file() -> Path:
+    return Path(os.environ.get("USAGE_MONITOR_LOCAL_TOKEN_FILE") or APP_HOME / "local-token").expanduser()
+
+
+def read_local_token(path: Path | None = None) -> str | None:
+    """Read the loopback refresh token, or None when it has not been issued."""
+    target = Path(path).expanduser() if path else local_token_file()
+    try:
+        return target.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def ensure_local_token(path: Path | None = None) -> str:
+    """Return the loopback refresh token, minting it on first use.
+
+    Same-user processes (the menu bar app) need a way to ask the backend for a
+    refresh once Basic Auth is on, and the stored password is a one-way hash
+    they cannot replay. This grants exactly that one call — see the middleware
+    in ``web.py``, which accepts the token only on the refresh routes — and
+    lives in a 0600 file next to ``config.yaml``, so reading it already implies
+    the ability to read the config and restart the server.
+    """
+    target = Path(path).expanduser() if path else local_token_file()
+    existing = read_local_token(target)
+    if existing:
+        return existing
+    token = secrets.token_urlsafe(32)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Create with 0600 from the start: never widen, never race a reader.
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(token)
+    os.chmod(target, 0o600)
+    return token
+
+
+def verify_local_token(candidate: str | None, expected: str | None) -> bool:
+    """Constant-time comparison; false whenever either side is missing."""
+    if not candidate or not expected:
+        return False
+    return hmac.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
 
 
 def _as_bool(value: Any, default: bool) -> bool:

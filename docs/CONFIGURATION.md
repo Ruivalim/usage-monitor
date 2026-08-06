@@ -124,6 +124,25 @@ export USAGE_MONITOR_AUTH_PASSWORD='local-only-secret'
 
 The login page is an in-dashboard gate; API clients use HTTP Basic Auth.
 
+### Loopback refresh token
+
+Only the password *hash* is stored, so same-machine tools cannot replay a
+password they can never read back — the menu bar app included. With auth on,
+the backend therefore mints a token at startup into:
+
+```text
+~/.config/usagemon/local-token      # 0600, USAGE_MONITOR_LOCAL_TOKEN_FILE overrides
+```
+
+A request carrying it as `X-Usage-Monitor-Token` is accepted on `/refresh` and
+`/api/v1/refresh`, and nowhere else — it triggers a collection, it does not read
+data. Reading the file already implies permission to read `config.yaml` and
+restart the server, so it grants nothing new to anyone who has it. Delete the
+file to rotate; the next backend start writes a fresh one.
+
+Without it the tray still works: a rejected refresh falls back to collecting
+in-process, which is correct but does the backend's work twice.
+
 
 ## Built-in provider types
 
@@ -229,6 +248,7 @@ balance, credits, credit, available, remaining
 | `USAGE_MONITOR_AUTH_USERNAME` | config value | Basic Auth username |
 | `USAGE_MONITOR_AUTH_PASSWORD` | unset | Basic Auth plaintext from env |
 | `USAGE_MONITOR_AUTH_PASSWORD_HASH` | unset | Basic Auth PBKDF2 hash from env |
+| `USAGE_MONITOR_LOCAL_TOKEN_FILE` | `$USAGE_MONITOR_HOME/local-token` | Loopback refresh token (0600, refresh routes only) |
 | `USAGE_MONITOR_LANGUAGE` / `USAGE_MONITOR_LANG` | config value | Dashboard/tray language (`en`/`pt`) |
 | `USAGE_MONITOR_AGY_BIN` | PATH lookup | Path to the `agy` binary for `antigravity.py` adapter |
 | `USAGE_MONITOR_AGY_TIMEOUT` | `30` | Seconds to wait for `agy` quota data |

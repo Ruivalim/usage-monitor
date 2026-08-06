@@ -12,7 +12,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from . import alerts as _alerts
 from . import autostart as _autostart
-from .config import AppConfig, AuthConfig, load_app_config, parse_basic_auth
+from .config import (
+    LOCAL_TOKEN_HEADER,
+    AppConfig,
+    AuthConfig,
+    ensure_local_token,
+    load_app_config,
+    parse_basic_auth,
+    verify_local_token,
+)
 from .core import _to_plain, collect_status, latest_snapshot, load_overrides, render_text, set_provider_relevant, snapshot_json
 
 
@@ -659,8 +667,13 @@ def create_api_router() -> APIRouter:
 # data: the dashboard shell and the flags it needs to draw the login gate.
 PUBLIC_PATHS = frozenset({"/", "/config"})
 
+# The only paths the loopback token unlocks. Same-user tools (the menu bar app)
+# can ask for a refresh without replaying a password they cannot read back from
+# the stored hash; everything else still demands Basic Auth.
+LOCAL_TOKEN_PATHS = frozenset({"/refresh", f"{API_PREFIX}/refresh"})
 
-def _install_basic_auth(app: FastAPI, auth: AuthConfig) -> None:
+
+def _install_basic_auth(app: FastAPI, auth: AuthConfig, local_token: str | None = None) -> None:
     """Deny-by-default Basic Auth over every path outside PUBLIC_PATHS.
 
     Middleware rather than a route dependency so that new routes — and
@@ -673,6 +686,10 @@ def _install_basic_auth(app: FastAPI, auth: AuthConfig) -> None:
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
         if request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+        if request.url.path in LOCAL_TOKEN_PATHS and verify_local_token(
+            request.headers.get(LOCAL_TOKEN_HEADER), local_token
+        ):
             return await call_next(request)
         credentials = parse_basic_auth(request.headers.get("authorization"))
         if credentials is not None and auth.verify(*credentials):
@@ -710,7 +727,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.include_router(create_api_router(), prefix=API_PREFIX, tags=["v1"])
 
     if app_config.auth.enabled:
-        _install_basic_auth(app, app_config.auth)
+        # Minted here rather than lazily, so the tray finds a token the moment
+        # the backend is up instead of on the second refresh.
+        try:
+            local_token = ensure_local_token()
+        except OSError:
+            local_token = None  # read-only home: Basic Auth still works
+        _install_basic_auth(app, app_config.auth, local_token=local_token)
 
     return app
 

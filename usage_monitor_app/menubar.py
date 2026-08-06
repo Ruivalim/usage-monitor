@@ -183,16 +183,28 @@ def snapshot_file_token() -> tuple[int, int] | None:
 def make_refresh_requester(dashboard_url: str, *, persist: bool = True) -> Callable[[], None]:
     """Blocking refresh: ask the backend to re-collect; fall back to local collect.
 
+    The token is read per call, not captured once: the backend may be started,
+    restarted, or have auth switched on long after the tray came up.
+
     Meant to run in a worker thread, never on the GUI thread.
     """
     url = dashboard_url.rstrip("/") + "/refresh"
 
     def request() -> None:
+        from .config import LOCAL_TOKEN_HEADER, read_local_token
+
+        headers = {}
+        token = read_local_token()
+        if token:
+            headers[LOCAL_TOKEN_HEADER] = token
         try:
-            req = urllib.request.Request(url, data=b"", method="POST")
+            req = urllib.request.Request(url, data=b"", method="POST", headers=headers)
             with urllib.request.urlopen(req, timeout=180):
                 pass
         except Exception:
+            # Backend down, or up but refusing us. Collecting locally keeps the
+            # tray honest either way; duplicated work only lasts as long as the
+            # backend stays unreachable.
             collect_status(persist=persist)
 
     return request

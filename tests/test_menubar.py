@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import urllib.error
 from types import SimpleNamespace
 
 import pytest
@@ -398,6 +399,51 @@ def test_main_with_fake_rumps(monkeypatch):
     monkeypatch.setattr(menubar, "make_refresh_requester", lambda *a, **k: (lambda: None))
     rc = menubar.main(["--interval", "0", "--poll-interval", "0", "--dashboard-url", "http://x:1"])
     assert rc == 0
+
+
+def test_refresh_requester_sends_local_token(tmp_path, monkeypatch):
+    """With auth on, the tray authenticates instead of silently collecting twice."""
+    from usage_monitor_app.config import LOCAL_TOKEN_HEADER, ensure_local_token
+
+    monkeypatch.setenv("USAGE_MONITOR_LOCAL_TOKEN_FILE", str(tmp_path / "local-token"))
+    token = ensure_local_token()
+    seen = {}
+    collected = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        seen["headers"] = {k.lower(): v for k, v in req.headers.items()}
+        return FakeResponse()
+
+    monkeypatch.setattr(menubar.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(menubar, "collect_status", lambda **kw: collected.append(kw))
+
+    menubar.make_refresh_requester("http://127.0.0.1:9097")()
+
+    assert seen["url"] == "http://127.0.0.1:9097/refresh"
+    assert seen["headers"][LOCAL_TOKEN_HEADER] == token
+    assert collected == []  # backend did the work, no local fallback
+
+
+def test_refresh_requester_falls_back_when_backend_refuses(tmp_path, monkeypatch):
+    monkeypatch.setenv("USAGE_MONITOR_LOCAL_TOKEN_FILE", str(tmp_path / "missing-token"))
+    collected = []
+
+    def fake_urlopen(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(menubar.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(menubar, "collect_status", lambda **kw: collected.append(kw))
+
+    menubar.make_refresh_requester("http://127.0.0.1:9097")()
+    assert collected == [{"persist": True}]
 
 
 def test_usagectl_menubar_subcommand_missing_rumps(monkeypatch, capsys):

@@ -248,6 +248,45 @@ def test_basic_auth_protects_dashboard_api_data(isolated_state):
     assert ok.json()["providers"][0]["id"] == "demo"
 
 
+def test_local_token_unlocks_refresh_only(isolated_state, tmp_path, monkeypatch):
+    """The tray can trigger a refresh; the token is not a general API key."""
+    from usage_monitor_app.config import LOCAL_TOKEN_HEADER, read_local_token
+
+    monkeypatch.setenv("USAGE_MONITOR_LOCAL_TOKEN_FILE", str(tmp_path / "local-token"))
+    client = TestClient(create_app(AppConfig(auth=AuthConfig(enabled=True, username="local", password="secret"))))
+    token = read_local_token()
+    assert token
+    headers = {LOCAL_TOKEN_HEADER: token}
+
+    assert client.post("/refresh", headers=headers).status_code == 200
+    assert client.post(API + "/refresh", headers=headers).status_code == 200
+    # same token, other routes: still denied
+    assert client.get("/status", headers=headers).status_code == 401
+    assert client.get(API + "/latest", headers=headers).status_code == 401
+    # wrong token on the unlocked route: denied
+    assert client.post("/refresh", headers={LOCAL_TOKEN_HEADER: "nope"}).status_code == 401
+    assert client.post("/refresh").status_code == 401
+
+
+def test_local_token_file_is_owner_only_and_stable(tmp_path, monkeypatch):
+    from usage_monitor_app.config import ensure_local_token
+
+    target = tmp_path / "local-token"
+    monkeypatch.setenv("USAGE_MONITOR_LOCAL_TOKEN_FILE", str(target))
+    first = ensure_local_token()
+    assert first and len(first) >= 32
+    assert target.stat().st_mode & 0o777 == 0o600
+    assert ensure_local_token() == first  # never rotates behind the server's back
+
+
+def test_no_token_is_issued_while_auth_is_off(tmp_path, monkeypatch):
+    from usage_monitor_app.config import read_local_token
+
+    monkeypatch.setenv("USAGE_MONITOR_LOCAL_TOKEN_FILE", str(tmp_path / "local-token"))
+    TestClient(create_app(AppConfig()))
+    assert read_local_token() is None
+
+
 def test_dashboard_uses_config_language():
     pt = TestClient(create_app(AppConfig()))
     assert '<html lang="en">' in pt.get("/").text
