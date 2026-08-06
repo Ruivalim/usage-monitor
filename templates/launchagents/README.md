@@ -9,11 +9,11 @@ paths instead:
 
 ```bash
 # print to stdout
-usagectl autostart --kind server
-usagectl autostart --kind menubar
+usagemon autostart --kind server
+usagemon autostart --kind menubar
 
 # write into a directory of your choice (never ~/Library/LaunchAgents unless you say so)
-usagectl autostart --output-dir ~/Desktop/usage-monitor-agents \
+usagemon autostart --output-dir ~/Desktop/usage-monitor-agents \
   --python /usr/bin/python3 \
   --working-dir ~/work/usage-monitor \
   --port 9097 --refresh-interval 900 \
@@ -33,8 +33,8 @@ launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.usage-monitor.serv
 launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.usage-monitor.server.plist
 ```
 
-- `com.usage-monitor.server.plist` — runs `usagectl serve` (FastAPI
+- `com.usage-monitor.server.plist` — runs `usagemon serve` (FastAPI
   backend + dashboard), restarts on crash.
-- `com.usage-monitor.menubar.plist` — runs `usagectl menubar`
+- `com.usage-monitor.menubar.plist` — runs `usagemon menubar`
   (optional rumps menu bar app; requires the `.[menubar]` extra), marked
   `ProcessType: Interactive` because it needs the GUI session.

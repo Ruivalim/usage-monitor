@@ -9,7 +9,7 @@ Auth is opt-in and local-only by default. Secrets are read from the
 environment first (``USAGE_MONITOR_AUTH_*``), so a config file committed by
 mistake never carries a usable credential. When a password must live in the
 file, prefer ``password_hash`` (PBKDF2-SHA256, produced by
-``usagectl auth hash``); plaintext ``password`` is accepted for local
+``usagemon auth hash``); plaintext ``password`` is accepted for local
 development only.
 
 Shape::

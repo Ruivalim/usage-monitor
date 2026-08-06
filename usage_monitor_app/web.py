@@ -691,7 +691,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         raise RuntimeError(
             "auth.enabled is set but no credential is configured. Set "
             "USAGE_MONITOR_AUTH_PASSWORD / USAGE_MONITOR_AUTH_PASSWORD_HASH, or run "
-            "`usagectl auth enable`."
+            "`usagemon auth enable`."
         )
 
     app = FastAPI(title="API Usage Monitor", lifespan=scheduler_lifespan(app_config.intervals.refresh_seconds))

@@ -5,7 +5,7 @@
 1. standalone local app (`usage-monitor serve`), useful outside Hermes;
 2. optional Hermes plugin backend mounted under `/api/plugins/api-usage-monitor`.
 
-`usagectl` remains as a backwards-compatible alias for existing scripts.
+`usagemon` remains as a backwards-compatible alias for existing scripts.
 
 ## Terminal commands
 
@@ -51,22 +51,22 @@ make tray                             # foreground tray, Ctrl+C stops
 
 # manual equivalent:
 python3.11 -m pip install -e '.[menubar]'
-usagectl menubar                      # auto-refresh from config.yaml (default 300s)
-usagectl menubar --interval 900
-usagectl menubar --no-persist         # refresh without appending snapshots
+usagemon menubar                      # auto-refresh from config.yaml (default 300s)
+usagemon menubar --interval 900
+usagemon menubar --no-persist         # refresh without appending snapshots
 ```
 
 The app shows the overall status icon in the menu bar (🟢 ok / 🟡 warning / 🔴 error / ⚪ unknown), one menu line per provider, and `Refresh Now`, `Open Dashboard`, `Show auth`, startup, and `Quit` actions. Language is controlled by `dashboard.language` (`en`/`pt`) or `--language`.
 
-It is a view over `core.collect_status` only: it does not start or manage the FastAPI backend. `Open Dashboard` opens the configured dashboard URL in the default browser (`--dashboard-url` or `USAGE_MONITOR_DASHBOARD_URL`, default `http://127.0.0.1:9097`) — start the backend separately with `usagectl serve` if you want the dashboard live.
+It is a view over `core.collect_status` only: it does not start or manage the FastAPI backend. `Open Dashboard` opens the configured dashboard URL in the default browser (`--dashboard-url` or `USAGE_MONITOR_DASHBOARD_URL`, default `http://127.0.0.1:9097`) — start the backend separately with `usagemon serve` if you want the dashboard live.
 
-Without `rumps` installed, `usagectl menubar` prints a clear install message and exits with code 2; every other command keeps working.
+Without `rumps` installed, `usagemon menubar` prints a clear install message and exits with code 2; every other command keeps working.
 
 ## macOS autostart (LaunchAgents)
 
-`usagectl autostart` generates LaunchAgent plist files for the standalone
-FastAPI backend (`usagectl serve`) and optionally the menu bar app
-(`usagectl menubar`). It is generation-only: it never runs `launchctl`,
+`usagemon autostart` generates LaunchAgent plist files for the standalone
+FastAPI backend (`usagemon serve`) and optionally the menu bar app
+(`usagemon menubar`). It is generation-only: it never runs `launchctl`,
 never loads/enables/starts anything, and writes only into an output
 directory you pass explicitly (or stdout).
 
@@ -83,14 +83,34 @@ make uninstall-tray                   # bootout + remove copied plists
 `make install-tray` installs both agents because the tray is useful alone for
 status, but `Open Dashboard` needs the FastAPI backend running.
 
+## Restarting after a config change
+
+`config.yaml` is read at startup, so rotating the auth password or changing an
+interval needs the agent reloaded:
+
+```bash
+usagemon restart                      # server only (the default)
+usagemon restart --kind menubar
+usagemon restart --kind both
+```
+
+Each restart is a `launchctl bootout` followed by a `bootstrap` of an already
+installed plist. Nothing is generated or written, and an agent whose plist is
+missing is skipped with a note rather than installed silently — run
+`make install-tray` for that. Exit code is `1` when `launchctl` refuses, `2`
+when there was nothing installed to restart.
+
+Provider changes need no restart: `providers.yaml` is re-read on every
+collection.
+
 ```bash
 # print plist XML to stdout
-usagectl autostart --kind server
-usagectl autostart --kind menubar
-usagectl autostart                      # both documents
+usagemon autostart --kind server
+usagemon autostart --kind menubar
+usagemon autostart                      # both documents
 
 # write plist files into a chosen directory
-usagectl autostart --output-dir /tmp/usage-monitor-agents --kind both
+usagemon autostart --output-dir /tmp/usage-monitor-agents --kind both
 ```
 
 All paths are explicit and configurable:
@@ -101,7 +121,7 @@ All paths are explicit and configurable:
 | `--output-dir` | stdout | Directory to write `*.plist` files into |
 | `--python` | current interpreter | Python executable used by the agent |
 | `--working-dir` | repo root | `WorkingDirectory` of the agent |
-| `--usagectl` | `<working-dir>/scripts/usagectl.py` | CLI entrypoint executed by the agent |
+| `--usagemon` | `<working-dir>/scripts/usagectl.py` | CLI entrypoint executed by the agent |
 | `--host` / `--port` | `127.0.0.1` / `9097` | Backend bind address |
 | `--refresh-interval` | `900` | Backend scheduler seconds; `0` disables |
 | `--log-dir` | `$USAGE_MONITOR_HOME/logs` | stdout/stderr log location |
@@ -127,8 +147,8 @@ needs the GUI session; the server plist restarts on crash
 ## Alert notifications
 
 ```bash
-usagectl status --notify                     # notify for new alerts only (dedup/snooze state)
-usagectl status --notify --snooze-seconds 300
+usagemon status --notify                     # notify for new alerts only (dedup/snooze state)
+usagemon status --notify --snooze-seconds 300
 ```
 
 Dedup/snooze state lives in `~/.config/usagemon/alert_state.json` (override with `USAGE_MONITOR_ALERT_STATE_FILE`).
@@ -142,7 +162,7 @@ served by the same handlers, so behavior can never drift between them.
 
 Everything binds to `127.0.0.1` by default. Basic Auth is optional and protects
 the dashboard, `/docs`, `/openapi.json`, and every data route; enable it with
-`usagectl auth enable` or environment variables (`USAGE_MONITOR_AUTH_PASSWORD`,
+`usagemon auth enable` or environment variables (`USAGE_MONITOR_AUTH_PASSWORD`,
 `USAGE_MONITOR_AUTH_PASSWORD_HASH`).
 
 | Route | Method | Purpose |

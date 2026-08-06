@@ -2,8 +2,8 @@
 """macOS LaunchAgent plist generation for the standalone usage monitor.
 
 Generates launchd property lists for the standalone FastAPI backend
-(``usagectl serve``) and optionally the rumps menu bar app
-(``usagectl menubar``).
+(``usagemon serve``) and optionally the rumps menu bar app
+(``usagemon menubar``).
 
 The generation functions are pure file generation: they never call
 ``launchctl``, never load/enable/start any agent, and never write anywhere
@@ -251,6 +251,37 @@ def bootstrap_agent(config: AutostartConfig, label: str, launchagents_dir: str |
     _launchctl("bootout", f"gui/{uid}", str(plist_path))  # fine if not loaded
     rc, _ = _launchctl("bootstrap", f"gui/{uid}", str(plist_path))
     return rc == 0
+
+
+def restart_agents(
+    config: AutostartConfig,
+    kind: str = "server",
+    launchagents_dir: str | Path | None = None,
+) -> dict:
+    """Boot out and re-bootstrap installed agents. Explicit action only.
+
+    Used to pick up config changes (a rotated auth password, a new provider)
+    without hunting for launchctl invocations by hand. Only agents whose plist
+    is already installed are touched; nothing is written or generated here.
+    """
+    directory = Path(launchagents_dir).expanduser() if launchagents_dir else _default_launchagents_dir()
+    labels = {
+        "server": [config.server_label],
+        "menubar": [config.menubar_label],
+        "both": [config.server_label, config.menubar_label],
+    }.get(kind)
+    if labels is None:
+        raise ValueError(f"Unknown kind: {kind!r} (expected server, menubar or both)")
+    restarted, missing, failed = [], [], []
+    for label in labels:
+        if not (directory / f"{label}.plist").exists():
+            missing.append(label)
+            continue
+        if bootstrap_agent(config, label, launchagents_dir=directory):
+            restarted.append(label)
+        else:
+            failed.append(label)
+    return {"restarted": restarted, "missing": missing, "failed": failed}
 
 
 def install_agents(config: AutostartConfig, launchagents_dir: str | Path | None = None) -> dict:

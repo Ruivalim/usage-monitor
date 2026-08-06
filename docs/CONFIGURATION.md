@@ -117,7 +117,7 @@ auth:
 Enable Basic Auth without writing plaintext to config:
 
 ```bash
-usagectl auth enable --username local
+usagemon auth enable --username local
 # or
 export USAGE_MONITOR_AUTH_PASSWORD='local-only-secret'
 ```
@@ -240,7 +240,7 @@ balance, credits, credit, available, remaining
 
 ## LaunchAgent generation (macOS autostart)
 
-`usagectl autostart` generates LaunchAgent plists for the standalone backend
+`usagemon autostart` generates LaunchAgent plists for the standalone backend
 and menu bar app (see `docs/USAGE.md` for the full flag list). Generation is
 file-only: nothing is loaded or enabled, and files are written only to a
 directory you pass explicitly.
@@ -251,9 +251,9 @@ Defaults derived from the runtime environment:
   each agent writes `<name>.out.log` / `<name>.err.log` there. Create the
   directory before bootstrapping an agent — launchd does not create missing
   log directories.
-- Python executable: the interpreter running `usagectl` (override with `--python`).
+- Python executable: the interpreter running `usagemon` (override with `--python`).
 - Working directory / `usagectl.py` path: repo root (override with
-  `--working-dir` / `--usagectl`).
+  `--working-dir` / `--usagemon`).
 
 Credentials stay where they already are (Keychain/env/`providers.yaml`); the
 generated plists contain no secrets, only paths and numeric flags.
@@ -270,7 +270,7 @@ and never notifies.
 - Dedup key: `level|provider|message`.
 - State is recorded before notifying, so a broken notifier cannot cause
   alert spam; notification failures are tolerated silently.
-- Manual use: `usagectl status --notify [--snooze-seconds N]`.
+- Manual use: `usagemon status --notify [--snooze-seconds N]`.
 - Tests inject a fake command runner; nothing notifies for real.
 
 ## Price table

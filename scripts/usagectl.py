@@ -73,6 +73,13 @@ def main(argv: list[str] | None = None) -> int:
     autostart.add_argument('--menubar-interval', type=int, default=None, help='menubar auto-refresh interval in seconds; 0 disables (default: config.yaml intervals.menubar_seconds, 300)')
     autostart.add_argument('--label-prefix', default='com.usage-monitor', help='launchd label prefix (default: com.usage-monitor)')
 
+    restart = sub.add_parser(
+        'restart',
+        help='Restart the installed LaunchAgents so they pick up config changes',
+    )
+    restart.add_argument('--kind', choices=['server', 'menubar', 'both'], default='server', help='which agent(s) to restart (default: server)')
+    restart.add_argument('--label-prefix', default='com.usage-monitor', help='launchd label prefix (default: com.usage-monitor)')
+
     auth = sub.add_parser('auth', help='Manage dashboard/API basic auth stored in config.yaml')
     auth_sub = auth.add_subparsers(dest='auth_cmd')
     auth_enable = auth_sub.add_parser('enable', help='Enable basic auth (generates a password unless one is given)')
@@ -174,6 +181,27 @@ def main(argv: list[str] | None = None) -> int:
         else:
             for plist in plists.values():
                 sys.stdout.write(usage_autostart.render_plist(plist).decode('utf-8'))
+        return 0
+
+    if cmd == 'restart':
+        from usage_monitor_app import autostart as usage_autostart
+
+        config = usage_autostart.AutostartConfig(
+            python_executable=sys.executable,
+            working_dir=str(REPO_ROOT),
+            label_prefix=args.label_prefix,
+        )
+        result = usage_autostart.restart_agents(config, kind=args.kind)
+        for label in result['restarted']:
+            print(f'restarted {label}')
+        for label in result['missing']:
+            print(f'not installed, skipped: {label} (run `make install-tray` first)', file=sys.stderr)
+        for label in result['failed']:
+            print(f'failed to restart {label}', file=sys.stderr)
+        if result['failed']:
+            return 1
+        if not result['restarted']:
+            return 2
         return 0
 
     if cmd == 'auth':

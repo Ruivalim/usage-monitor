@@ -229,6 +229,44 @@ def test_agent_status_reports_loaded_and_files(tmp_path, monkeypatch):
     assert menubar["loaded"] is False and menubar["plist_exists"] is False
 
 
+def test_restart_agents_reloads_only_installed_plists(tmp_path, monkeypatch):
+    calls = []
+
+    def fake(*args):
+        calls.append(args)
+        return 0, ""
+
+    monkeypatch.setattr(autostart, "_launchctl", fake)
+    config = _config(tmp_path)
+    (tmp_path / f"{config.server_label}.plist").write_text("x", encoding="utf-8")
+
+    result = autostart.restart_agents(config, kind="both", launchagents_dir=tmp_path)
+    assert result["restarted"] == [config.server_label]
+    assert result["missing"] == [config.menubar_label]
+    assert result["failed"] == []
+    # a restart is bootout followed by bootstrap, and only for the installed one
+    assert [c[0] for c in calls] == ["bootout", "bootstrap"]
+    assert all(config.server_label in c[2] for c in calls)
+
+
+def test_restart_agents_reports_launchctl_failure(tmp_path, monkeypatch):
+    def fake(*args):
+        return (1, "Bootstrap failed") if args[0] == "bootstrap" else (0, "")
+
+    monkeypatch.setattr(autostart, "_launchctl", fake)
+    config = _config(tmp_path)
+    (tmp_path / f"{config.server_label}.plist").write_text("x", encoding="utf-8")
+
+    result = autostart.restart_agents(config, kind="server", launchagents_dir=tmp_path)
+    assert result["failed"] == [config.server_label]
+    assert result["restarted"] == []
+
+
+def test_restart_agents_rejects_unknown_kind(tmp_path):
+    with pytest.raises(ValueError):
+        autostart.restart_agents(_config(tmp_path), kind="bogus", launchagents_dir=tmp_path)
+
+
 def test_install_agents_writes_plists_and_bootstraps_menubar_only(tmp_path, monkeypatch):
     calls = []
 

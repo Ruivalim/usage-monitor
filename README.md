@@ -54,6 +54,7 @@ usage-monitor serve --port 9097          # refresh interval defaults to config.y
 usage-monitor menubar                    # interval defaults to config.yaml (300s)
 usage-monitor autostart --output-dir ./agents   # generate LaunchAgent plists
 usage-monitor auth enable                # optional Basic Auth for dashboard + API
+usage-monitor restart                    # reload the running server after a config change
 ```
 
 `usagectl` remains as a backwards-compatible alias for existing installs/scripts.
@@ -66,14 +67,15 @@ usage-monitor auth enable                # optional Basic Auth for dashboard + A
   provider. It reads the newest persisted snapshot instead of collecting on the UI
   thread, and `Refresh Now` delegates to the backend. Requires the optional
   `rumps` extra; without it the command exits with a clear message and code 2.
-- **macOS autostart**: `usagectl autostart` only *generates* LaunchAgent plists —
+- **macOS autostart**: `usagemon autostart` only *generates* LaunchAgent plists —
   it never calls `launchctl` and writes only where you tell it to. `make
   install-tray` / `make uninstall-tray` do the loading step for you.
 - **CLI on PATH**: `usage-monitor` and `usagectl` come from `make setup`
   (editable install) and need the venv active. `usagectl` is kept as a legacy
   alias for older scripts. `make install-cli` additionally drops a `usagemon`
   wrapper in `~/.local/bin` that pins this checkout's venv, so it works from any
-  shell; `make uninstall-cli` removes it.
+  shell without activating anything — that is the one to use day to day, and the
+  name every example below assumes. `make uninstall-cli` removes it.
 - **Snapshots**: appended to `~/.config/usagemon/snapshots.jsonl`.
 
 Details and every flag: [docs/USAGE.md](docs/USAGE.md).
@@ -104,7 +106,7 @@ curl -sX POST http://127.0.0.1:9097/api/v1/refresh > /dev/null
 The schema is browsable at `/docs` and `/openapi.json`.
 
 > **Local only by default.** The server binds `127.0.0.1`. If you proxy it or
-> want a browser gate, enable Basic Auth with `usagectl auth enable` or
+> want a browser gate, enable Basic Auth with `usagemon auth enable` or
 > `USAGE_MONITOR_AUTH_PASSWORD`. `/api/v1/autostart/install` writes files into
 > `~/Library/LaunchAgents`.
 
@@ -153,7 +155,7 @@ intervals:
   refresh_seconds: 900
   menubar_seconds: 300
 auth:
-  enabled: false      # enable with: usagectl auth enable
+  enabled: false      # enable with: usagemon auth enable
 ```
 
 Credentials come from the macOS Keychain (preferred), an env var, the Hermes

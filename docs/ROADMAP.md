@@ -22,14 +22,14 @@ Status: mostly done.
 
 Recommended next implementation: Python `rumps` menu bar app.
 
-Current status: `usage_monitor_app/menubar.py` (`usagectl menubar`, extra `.[menubar]`) covers the icon, per-provider lines, refresh, and open-dashboard actions. Remaining: backend lifecycle and autostart.
+Current status: `usage_monitor_app/menubar.py` (`usagemon menubar`, extra `.[menubar]`) covers the icon, per-provider lines, refresh, and open-dashboard actions. Remaining: backend lifecycle and autostart.
 
 - [x] Menu bar/tray icon showing overall status.
 - [x] Menu items for each provider summary.
 - [x] Manual `Refresh` action.
 - [x] `Open Dashboard` action.
 - [ ] Backend lifecycle: detect/reuse local FastAPI or launch it.
-- [x] LaunchAgent/install helper for autostart (`usagectl autostart` generates plists only; activation stays manual).
+- [x] LaunchAgent/install helper for autostart (`usagemon autostart` generates plists only; activation stays manual).
 - [ ] Hermes plugin packaging: `hermes plugins enable api-usage-monitor` fails with "not installed or bundled" — the manifest references a `dist/index.js` desktop bundle that this repo does not build. The standalone app does not depend on it; making the Hermes plugin real is separate packaging work.
 
 Why `rumps` first: fastest path, enough for local personal app, easy to replace with Swift/AppKit later.

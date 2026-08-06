@@ -16,7 +16,7 @@ Provider-agnostic API Usage Monitor — a standalone app that runs on its own. C
 
 ## CLI Usage
 
-`usage-monitor` is the public standalone CLI installed by the Python package. `usagectl` remains as a backwards-compatible alias. `usagemon` is the repo-pinned wrapper installed by `make install-cli`; it runs the repo's own venv. Equivalent to `<repo>/.venv/bin/python <repo>/scripts/usagectl.py`.
+`usage-monitor` is the public standalone CLI installed by the Python package. `usagemon` remains as a backwards-compatible alias. `usagemon` is the repo-pinned wrapper installed by `make install-cli`; it runs the repo's own venv. Equivalent to `<repo>/.venv/bin/python <repo>/scripts/usagectl.py`.
 
 ```bash
 usage-monitor status
@@ -57,7 +57,7 @@ External price table: `~/.config/usagemon/prices.yaml` / `USAGE_MONITOR_PRICES_F
 
 Alerts: `~/.config/usagemon/alert_state.json`, `USAGE_MONITOR_ALERT_SNOOZE_SECONDS`, `USAGE_MONITOR_ALERT_NOTIFY=0` to suppress real osascript notifications.
 
-Menu bar app is optional and requires `rumps` (`pip install 'usage-monitor[menubar]'`); without it, only the menubar command exits 2 with a clear message. `usagectl autostart` only prints/writes LaunchAgent plists; it never runs `launchctl`.
+Menu bar app is optional and requires `rumps` (`pip install 'usage-monitor[menubar]'`); without it, only the menubar command exits 2 with a clear message. `usagemon autostart` only prints/writes LaunchAgent plists; it never runs `launchctl`.
 
 ## Providers
 
