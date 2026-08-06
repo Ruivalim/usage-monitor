@@ -149,3 +149,25 @@ providers:
 
 # Anything not covered here can be added as an external Python adapter in
 # ~/.config/usagemon/adapters/ without touching this file — see docs/EXTENDING.md.
+#
+# --- External adapters (shipped in plugin/adapters/) -------------------------
+#
+# Qwen Token Plan (qwen_token_plan.py):
+#   Reads local usage logs from ~/.qwen/usage/token-usage-*.jsonl and checks
+#   API reachability via /models. No public API exists for querying remaining
+#   credits; the adapter tracks tokens locally with per-model pricing and
+#   optionally converts to credits when a USD/credit rate is configured.
+#
+#   Per-model pricing (USD/M tokens) is built-in for qwen3.8-max, qwen3.7-plus,
+#   flash models, and third-party models. Override via USAGE_MONITOR_QWEN_PRICING_JSON.
+#
+#   Env vars:
+#     USAGE_MONITOR_QWEN_USD_PER_CREDIT     USD cost of 1 credit. Calibrate by
+#                                           comparing local cost with console.
+#                                           Lite plan: $6/2500 = $0.0024.
+#     USAGE_MONITOR_QWEN_CREDIT_LIMIT       7-day credit limit (default: 2500)
+#     USAGE_MONITOR_QWEN_WINDOW_DAYS        Window size (default: 7)
+#     USAGE_MONITOR_QWEN_API_KEY            Override API key
+#     USAGE_MONITOR_QWEN_BASE_URL           Override base URL
+#     USAGE_MONITOR_QWEN_PRICING_JSON       Override per-model pricing, e.g.:
+#                                           '{"qwen3.8-max":{"in":2.0,"out":6.0}}'
