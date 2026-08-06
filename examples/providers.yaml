@@ -103,6 +103,16 @@ providers:
       source: hermes
       provider: zai
 
+  # Gemini API: checks if the API is reachable. Google does not provide an endpoint
+  # to fetch the credit balance, so this only validates the API key.
+  - id: gemini
+    label: Gemini API
+    type: gemini
+    enabled: false
+    credential:
+      source: env
+      name: GEMINI_API_KEY
+
   # --- Subscription / quota windows (require Hermes) -----------------------
 
   # Bridges Hermes `agent.account_usage` for OAuth-subscription providers.
@@ -117,6 +127,12 @@ providers:
   - id: claude
     label: Claude / Anthropic
     type: anthropic-subscription
+    enabled: false
+
+  # Same bridge, pre-pointed at Google AI Plus; `provider` defaults to `google-ai-plus`.
+  - id: google
+    label: Google AI Plus
+    type: google-ai-plus
     enabled: false
 
   # Nous portal credit lines via Hermes. Marks `quota_exhausted` when the portal
@@ -151,6 +167,29 @@ providers:
 # ~/.config/usagemon/adapters/ without touching this file — see docs/EXTENDING.md.
 #
 # --- External adapters (shipped in plugin/adapters/) -------------------------
+#
+# Google Cloud (GCP) Billing (gcp_billing.py):
+#   Queries the Google Cloud Billing REST API for billing account status,
+#   project billing info, and budget tracking for Gemini API / Vertex AI.
+#   Env vars:
+#     GCP_ACCESS_TOKEN                OAuth access token (or gcloud auth print-access-token)
+#     GCP_PROJECT_ID                  GCP project ID (optional)
+#     GCP_BILLING_ACCOUNT_ID          GCP billing account ID (optional)
+#     USAGE_MONITOR_GCP_BUDGET_USD    Target monthly budget in USD (optional)
+#
+# Google Antigravity (antigravity.py):
+#   Reads the 7-day plan quota out of the `agy` CLI's local language-server RPC
+#   (GetUserStatus on loopback). `agy` is a TUI and exits without a terminal, so
+#   the adapter starts it on a pty, reads the quota, and kills its own child --
+#   an `agy` you started yourself is never touched. Results are cached.
+#   Env vars:
+#     USAGE_MONITOR_AGY_BIN           Path to `agy` (default: PATH lookup)
+#     USAGE_MONITOR_AGY_TIMEOUT       Seconds to wait for quota data (default: 30)
+#     USAGE_MONITOR_AGY_SETTLE        Extra settle seconds after first read (default: 1.0)
+#     USAGE_MONITOR_AGY_CACHE_TTL     Cache lifetime in seconds (default: 300, 0 disables)
+#     USAGE_MONITOR_AGY_CACHE         Cache file path
+#     USAGE_MONITOR_AGY_REUSE         "1" reads a running `agy` (faster, may be stale)
+#     USAGE_MONITOR_AGY_WARN_PCT      Warn below this remaining percent (default: 15)
 #
 # Qwen Token Plan (qwen_token_plan.py):
 #   Reads local usage logs from ~/.qwen/usage/token-usage-*.jsonl and checks

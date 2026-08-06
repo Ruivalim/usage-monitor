@@ -539,6 +539,25 @@ def _adapter_placeholder(conf: dict[str, Any]) -> ProviderStatus:
     return ProviderStatus(conf["id"], conf.get("label", conf["id"]), status="unknown" if token else "unavailable", source=source, message=conf.get("message") or "No balance endpoint configured", details=[f"base_url: {base_url}" if base_url else "No runtime base_url"])
 
 
+def _adapter_gemini(conf: dict[str, Any]) -> ProviderStatus:
+    token, base_url, source = _credential(conf)
+    label = conf.get("label", conf["id"])
+    if not token:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message="No Gemini API credential")
+    base = (base_url or "https://generativelanguage.googleapis.com").rstrip("/")
+    url = f"{base}/v1beta/models"
+    try:
+        headers = {"x-goog-api-key": token}
+        code, body = _http_get_json(url, token=None, timeout=float(conf.get("timeout", 12.0)), headers=headers)
+        status, msg = _status_from_http(code, body)
+        ps = ProviderStatus(conf["id"], label, status=status, source=source, message=msg)
+        if 200 <= code < 300:
+            ps.details.append("API reachable (Google does not provide a balance endpoint)")
+        return ps
+    except Exception as exc:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message=str(exc)[:240])
+
+
 def _adapter_hermes_nous(conf: dict[str, Any]) -> ProviderStatus:
     try:
         from agent.account_usage import nous_credits_lines  # type: ignore
@@ -755,11 +774,13 @@ def _adapter_hermes_state_db(conf: dict[str, Any]) -> list[ProviderStatus]:
 REGISTRY: dict[str, Callable[[dict[str, Any]], ProviderStatus | list[ProviderStatus]]] = {
     "deepseek": _adapter_deepseek,
     "kimi": _adapter_kimi,
+    "gemini": _adapter_gemini,
     "openai-compatible": _adapter_openai_compatible,
     "generic-http": _adapter_openai_compatible,
     "placeholder": _adapter_placeholder,
     "hermes-account-usage": lambda conf: _from_account_usage(str(conf.get("provider") or conf["id"]), str(conf.get("label") or conf["id"])),
     "anthropic-subscription": lambda conf: _from_account_usage(str(conf.get("provider") or "anthropic"), str(conf.get("label") or "Claude / Anthropic")),
+    "google-ai-plus": lambda conf: _from_account_usage(str(conf.get("provider") or "google-ai-plus"), str(conf.get("label") or "Google AI Plus")),
     "hermes-auth": _adapter_hermes_auth,
     "hermes-nous": _adapter_hermes_nous,
     "hermes-state-db": _adapter_hermes_state_db,
