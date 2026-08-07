@@ -99,6 +99,25 @@ def test_codex_wham_usage(monkeypatch, tmp_path):
     assert any("banked resets" in d for d in ps.details)
 
 
+def test_codex_ensure_providers_entry(tmp_path):
+    from usage_monitor_app import codex as usage_codex
+
+    path = tmp_path / "providers.yaml"
+    path.write_text("defaults:\n  timeout: 12\nproviders: []\n", encoding="utf-8")
+    out, action = usage_codex.ensure_providers_entry(
+        service="api-usage-monitor/codex",
+        account="default",
+        providers_file=path,
+    )
+    assert action == "added"
+    assert out == path
+    text = path.read_text(encoding="utf-8")
+    assert "type: codex" in text
+    assert "api-usage-monitor/codex" in text
+    out2, action2 = usage_codex.ensure_providers_entry(providers_file=path)
+    assert action2 == "unchanged"
+
+
 def test_codex_missing_session(tmp_path, monkeypatch):
     monkeypatch.setenv("USAGE_MONITOR_CODEX_AUTH_FILE", str(tmp_path / "missing.json"))
     # Avoid real keychain / home auth

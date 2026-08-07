@@ -53,7 +53,7 @@ PROVIDER_ID = "antigravity"
 DEFAULT_LABEL = "Antigravity (agy)"
 RPC_PATH = "/exa.language_server_pb.LanguageServerService/GetUserStatus"
 
-DEFAULT_TIMEOUT = 30.0
+DEFAULT_TIMEOUT = 45.0
 DEFAULT_SETTLE = 1.0
 DEFAULT_CACHE_TTL = 300.0
 DEFAULT_WARN_PCT = 15.0
@@ -385,7 +385,11 @@ def check() -> dict[str, Any]:
         except Exception as exc:
             return unavailable(f"Failed to query agy: {str(exc)[:200]}")
         if payload is None:
-            return unavailable(f"agy did not report quota data within {timeout:.0f}s")
+            return unavailable(
+                f"agy did not report quota data within {timeout:.0f}s "
+                f"(RPC timeout — not the same as 0% plan quota; try USAGE_MONITOR_AGY_TIMEOUT=60 "
+                f"or USAGE_MONITOR_AGY_REUSE=1 with agy already open)"
+            )
 
     _write_cache(payload)
     return _build_result(payload, source)

@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
 
     codex_login = sub.add_parser(
         'codex-login',
-        help='Sign in to OpenAI Codex / ChatGPT via device-code OAuth; store tokens in Keychain',
+        help='Sign in to OpenAI Codex / ChatGPT via device-code OAuth; store tokens in Keychain, update providers.yaml, restart agents',
     )
     codex_login.add_argument(
         '--service',
@@ -95,9 +95,35 @@ def main(argv: list[str] | None = None) -> int:
         help='Keychain account name (default: default; use a distinct value per ChatGPT account)',
     )
     codex_login.add_argument(
+        '--provider-id',
+        default='codex',
+        help='providers.yaml id to write/update (default: codex)',
+    )
+    codex_login.add_argument(
+        '--name',
+        default='Codex',
+        help='display name for the provider entry (default: Codex)',
+    )
+    codex_login.add_argument(
         '--no-keychain',
         action='store_true',
         help='do not write Keychain (prints only that login succeeded)',
+    )
+    codex_login.add_argument(
+        '--no-config',
+        action='store_true',
+        help='do not add/update the providers.yaml entry',
+    )
+    codex_login.add_argument(
+        '--no-restart',
+        action='store_true',
+        help='do not restart LaunchAgents after login',
+    )
+    codex_login.add_argument(
+        '--restart-kind',
+        choices=['server', 'menubar', 'both'],
+        default='both',
+        help='which LaunchAgents to restart (default: both)',
     )
 
     auth = sub.add_parser('auth', help='Manage dashboard/API basic auth stored in config.yaml')
@@ -238,15 +264,39 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             print(f'codex-login failed: {exc}', file=sys.stderr)
             return 1
-        print('Codex login complete. Add to providers.yaml:')
-        print()
-        print('  - id: codex')
-        print('    name: Codex')
-        print('    type: codex')
-        print('    credential:')
-        print('      source: keychain')
-        print(f'      service: {args.service}')
-        print(f'      account: {args.account}')
+
+        if not args.no_config and not args.no_keychain:
+            try:
+                path, action = usage_codex.ensure_providers_entry(
+                    service=args.service,
+                    account=args.account,
+                    provider_id=args.provider_id,
+                    name=args.name,
+                )
+                print(f'providers.yaml {action}: {path} (id={args.provider_id})')
+            except Exception as exc:
+                print(f'warning: could not update providers.yaml: {exc}', file=sys.stderr)
+        elif args.no_config or args.no_keychain:
+            print('Skipped providers.yaml update (--no-config or --no-keychain).')
+
+        if not args.no_restart:
+            from usage_monitor_app import autostart as usage_autostart
+
+            config = usage_autostart.AutostartConfig(
+                python_executable=sys.executable,
+                working_dir=str(REPO_ROOT),
+            )
+            result = usage_autostart.restart_agents(config, kind=args.restart_kind)
+            for label in result['restarted']:
+                print(f'restarted {label}')
+            for label in result['missing']:
+                print(f'not installed, skipped: {label}', file=sys.stderr)
+            for label in result['failed']:
+                print(f'failed to restart {label}', file=sys.stderr)
+            if result['failed']:
+                return 1
+            if not result['restarted'] and result['missing']:
+                print('No LaunchAgents installed — run `usagemon status` or `make install-tray` if you use the tray/server.')
         return 0
 
     if cmd == 'auth':

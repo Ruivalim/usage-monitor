@@ -492,6 +492,95 @@ def device_code_login(*, store_keychain: bool = True, service: str = DEFAULT_KEY
     return tokens
 
 
+def ensure_providers_entry(
+    *,
+    service: str = DEFAULT_KEYCHAIN_SERVICE,
+    account: str = DEFAULT_KEYCHAIN_ACCOUNT,
+    provider_id: str = "codex",
+    name: str = "Codex",
+    providers_file: Path | None = None,
+) -> tuple[Path, str]:
+    """Ensure a ``type: codex`` entry exists in providers.yaml.
+
+    Returns ``(path, action)`` where action is ``added`` | ``updated`` | ``unchanged``.
+    """
+    try:
+        import yaml  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError("PyYAML is required to update providers.yaml") from exc
+
+    from .core import PROVIDERS_FILE
+
+    path = Path(providers_file).expanduser() if providers_file else PROVIDERS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.is_file() and path.read_text(encoding="utf-8").strip():
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if not isinstance(data, dict):
+            data = {}
+    else:
+        data = {"defaults": {"timeout": 12}, "providers": []}
+
+    providers = data.get("providers")
+    if not isinstance(providers, list):
+        providers = []
+        data["providers"] = providers
+
+    desired_cred = {
+        "source": "keychain",
+        "service": service,
+        "account": account,
+    }
+
+    for item in providers:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("id") or "") != provider_id and str(item.get("type") or "") not in ("codex", "openai-codex"):
+            continue
+        # Match by id or any codex type with same account/service if id matches preferred.
+        if str(item.get("id") or "") != provider_id:
+            continue
+        changed = False
+        if item.get("type") not in ("codex", "openai-codex"):
+            item["type"] = "codex"
+            changed = True
+        if not item.get("name") and not item.get("label"):
+            item["name"] = name
+            changed = True
+        if item.get("enabled") is False:
+            item["enabled"] = True
+            changed = True
+        cred = item.get("credential") if isinstance(item.get("credential"), dict) else {}
+        if (
+            cred.get("source") != "keychain"
+            or str(cred.get("service") or "") != service
+            or str(cred.get("account") or "") != account
+        ):
+            item["credential"] = desired_cred
+            changed = True
+        if changed:
+            path.write_text(
+                yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True),
+                encoding="utf-8",
+            )
+            return path, "updated"
+        return path, "unchanged"
+
+    providers.append(
+        {
+            "id": provider_id,
+            "name": name,
+            "type": "codex",
+            "credential": desired_cred,
+        }
+    )
+    path.write_text(
+        yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return path, "added"
+
+
 def _account_id_from_id_token(id_token: Any) -> Optional[str]:
     if not id_token or not isinstance(id_token, str):
         return None
