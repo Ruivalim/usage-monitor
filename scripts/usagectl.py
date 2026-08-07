@@ -80,6 +80,26 @@ def main(argv: list[str] | None = None) -> int:
     restart.add_argument('--kind', choices=['server', 'menubar', 'both'], default='server', help='which agent(s) to restart (default: server)')
     restart.add_argument('--label-prefix', default='com.usage-monitor', help='launchd label prefix (default: com.usage-monitor)')
 
+    codex_login = sub.add_parser(
+        'codex-login',
+        help='Sign in to OpenAI Codex / ChatGPT via device-code OAuth; store tokens in Keychain',
+    )
+    codex_login.add_argument(
+        '--service',
+        default='api-usage-monitor/codex',
+        help='Keychain service name (default: api-usage-monitor/codex)',
+    )
+    codex_login.add_argument(
+        '--account',
+        default='default',
+        help='Keychain account name (default: default; use a distinct value per ChatGPT account)',
+    )
+    codex_login.add_argument(
+        '--no-keychain',
+        action='store_true',
+        help='do not write Keychain (prints only that login succeeded)',
+    )
+
     auth = sub.add_parser('auth', help='Manage dashboard/API basic auth stored in config.yaml')
     auth_sub = auth.add_subparsers(dest='auth_cmd')
     auth_enable = auth_sub.add_parser('enable', help='Enable basic auth (generates a password unless one is given)')
@@ -202,6 +222,31 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         if not result['restarted']:
             return 2
+        return 0
+
+    if cmd == 'codex-login':
+        from usage_monitor_app import codex as usage_codex
+
+        try:
+            usage_codex.device_code_login(
+                store_keychain=not args.no_keychain,
+                service=args.service,
+                account=args.account,
+            )
+        except SystemExit as exc:
+            return int(exc.code or 1)
+        except Exception as exc:
+            print(f'codex-login failed: {exc}', file=sys.stderr)
+            return 1
+        print('Codex login complete. Add to providers.yaml:')
+        print()
+        print('  - id: codex')
+        print('    name: Codex')
+        print('    type: codex')
+        print('    credential:')
+        print('      source: keychain')
+        print(f'      service: {args.service}')
+        print(f'      account: {args.account}')
         return 0
 
     if cmd == 'auth':

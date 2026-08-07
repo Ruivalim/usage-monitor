@@ -24,6 +24,8 @@ def test_registry_has_expected_types():
         "kimi-cli",
         "qwen-token-plan",
         "antigravity",
+        "codex",
+        "openai-codex",
     }
     assert expected <= set(core.REGISTRY)
     assert "hermes-auth" not in core.REGISTRY

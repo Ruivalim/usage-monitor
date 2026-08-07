@@ -153,7 +153,15 @@ providers:
     type: antigravity
     enabled: false
 
-  # Codex: pending native CLI adapter (no longer via Hermes by default).
-  # - id: codex
-  #   name: Codex
-  #   type: codex
+  # OpenAI Codex / ChatGPT subscription via /wham/usage.
+  # Login once: usagemon codex-login  (device-code → Keychain)
+  # Also works with an existing ~/.codex/auth.json from the Codex CLI.
+  - id: codex
+    name: Codex
+    type: codex
+    enabled: false
+    credential:
+      source: keychain
+      service: api-usage-monitor/codex
+      account: default
+

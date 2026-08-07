@@ -54,6 +54,61 @@ def fake_http(monkeypatch):
     return fake
 
 
+def test_codex_wham_usage(monkeypatch, tmp_path):
+    auth = {
+        "auth_mode": "chatgpt",
+        "tokens": {
+            "access_token": "at-test",
+            "refresh_token": "rt-test",
+            "account_id": "acc-1",
+        },
+    }
+    auth_path = tmp_path / "auth.json"
+    auth_path.write_text(json.dumps(auth), encoding="utf-8")
+
+    def fake_get(url, token=None, *, timeout=12.0, headers=None):
+        assert "wham/usage" in url
+        assert token == "at-test"
+        assert headers and headers.get("ChatGPT-Account-Id") == "acc-1"
+        return 200, {
+            "plan_type": "prolite",
+            "rate_limit": {
+                "primary_window": {"used_percent": 3.0, "reset_at": "2026-08-08T00:00:00Z"},
+                "secondary_window": {"used_percent": 12.5, "reset_at": "2026-08-14T00:00:00Z"},
+            },
+            "rate_limit_reset_credits": {"available_count": 1},
+        }
+
+    monkeypatch.setattr(core, "_http_get_json", fake_get)
+    conf = {
+        "id": "codex",
+        "name": "Codex Plus",
+        "type": "codex",
+        "auth_path": str(auth_path),
+    }
+    # Prevent JWT refresh path from thinking token is expired
+    monkeypatch.setattr("usage_monitor_app.codex._needs_refresh", lambda tokens: False)
+    ps = core._adapter_codex(conf)
+    assert ps.status == "ok"
+    assert ps.id == "codex"
+    assert ps.label == "Codex Plus"
+    assert [w.label for w in ps.windows] == ["Current session", "Current week"]
+    assert ps.windows[0].used_percent == 3.0
+    assert ps.windows[0].remaining_percent == 97.0
+    assert any("plan: Prolite" in d or "plan: prolite" in d.lower() or "Prolite" in d or "prolite" in d for d in ps.details)
+    assert any("banked resets" in d for d in ps.details)
+
+
+def test_codex_missing_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("USAGE_MONITOR_CODEX_AUTH_FILE", str(tmp_path / "missing.json"))
+    # Avoid real keychain / home auth
+    monkeypatch.setattr("usage_monitor_app.codex._keychain_get", lambda **k: None)
+    monkeypatch.setattr("usage_monitor_app.codex._auth_paths", lambda conf: [tmp_path / "nope.json"])
+    ps = core._adapter_codex({"id": "codex", "name": "Codex", "type": "codex"})
+    assert ps.status == "unavailable"
+    assert "codex-login" in (ps.message or "")
+
+
 def test_deepseek_happy_path(fake_http):
     fake_http["/user/balance"] = (200, {
         "is_available": True,

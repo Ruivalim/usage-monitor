@@ -88,7 +88,7 @@ def test_example_providers_file_covers_every_registry_type():
     data = core.load_provider_config(EXAMPLE_PROVIDERS)
     types = {p["type"] for p in data["providers"]}
     # Aliases like `grok` → supergrok need not each have a dedicated example entry.
-    aliases = {"grok"}
+    aliases = {"grok", "openai-codex"}  # aliases of supergrok / codex
     assert set(core.REGISTRY) - aliases <= types
     ids = [p["id"] for p in data["providers"]]
     assert len(ids) == len(set(ids))

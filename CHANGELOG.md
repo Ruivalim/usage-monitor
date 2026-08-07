@@ -11,6 +11,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - SuperGrok weekly usage pool (`supergrok` / `grok`) via Grok CLI session (`~/.grok/auth.json`).
 - xAI Management API prepaid credits (`xai`).
 - OpenAI org costs (`openai`) via Admin key; honest error for secret-key `credit_grants`.
+- OpenAI Codex / ChatGPT subscription (`codex`): `/wham/usage` with device-code OAuth (`usagemon codex-login` → Keychain) or `~/.codex/auth.json`.
 - Display `name` on provider entries (multi-sub of the same `type` with unique `id`).
 - Explicit file-adapter types: `claude-cli`, `kimi-cli`, `qwen-token-plan`, `antigravity` (YAML only).
 

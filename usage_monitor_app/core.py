@@ -1302,6 +1302,18 @@ REGISTRY: dict[str, Callable[[dict[str, Any]], ProviderStatus | list[ProviderSta
 }
 
 
+def _adapter_codex(conf: dict[str, Any]) -> ProviderStatus:
+    from .codex import check_provider
+
+    return check_provider(conf)
+
+
+# Late registration keeps codex import optional at module load for unit tests
+# that only monkeypatch REGISTRY.
+REGISTRY["codex"] = _adapter_codex
+REGISTRY["openai-codex"] = _adapter_codex  # alias
+
+
 def _coerce_window(value: Any) -> UsageWindow:
     if isinstance(value, UsageWindow):
         return value
