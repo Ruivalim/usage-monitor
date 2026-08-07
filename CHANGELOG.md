@@ -8,6 +8,22 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- SuperGrok weekly usage pool (`supergrok` / `grok`) via Grok CLI session (`~/.grok/auth.json`).
+- xAI Management API prepaid credits (`xai`).
+- OpenAI org costs (`openai`) via Admin key; honest error for secret-key `credit_grants`.
+- Display `name` on provider entries (multi-sub of the same `type` with unique `id`).
+- Explicit file-adapter types: `claude-cli`, `kimi-cli`, `qwen-token-plan`, `antigravity` (YAML only).
+
+### Changed
+
+- Collect is **YAML-only**: `adapters/*.py` are no longer auto-loaded.
+- Provider entry `name` overrides display label for multi-account setups.
+
+### Removed
+
+- `hermes-auth` provider type and all **show auth** UI (dashboard, menubar, plugin).
+- Z.ai placeholder and OpenAI `credit_grants` recommendations from examples.
+
 - Public CLI entry point `usage-monitor` while keeping `usagectl` as a backwards-compatible alias.
 - SPDX MIT headers across Python source files.
 - Standalone Python package `usage_monitor_app`.

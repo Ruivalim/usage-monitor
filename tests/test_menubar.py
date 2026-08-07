@@ -125,7 +125,6 @@ def make_snapshot_dict(overall="warning", providers=None):
             "balance": {"amount": 12.34, "currency": "USD"},
             "windows": [{"label": "API key quota", "remaining_percent": 58.0}],
         },
-        {"id": "auth:zai", "label": "Auth: zai", "status": "ok"},
         {"id": "nous", "label": "Nous Portal", "status": "quota_exhausted", "relevant": False},
     ]
     return {"checked_at": "2026-07-26T00:00:00+00:00", "overall": overall, "providers": providers, "alerts": []}
@@ -197,21 +196,10 @@ def test_load_populates_title_and_menu():
     titles = menu_titles(app)
     assert "Refresh Now" in titles
     assert "Open Dashboard" in titles
-    assert "Show auth" in titles
+    assert "Show auth" not in titles
     assert "Open at startup" in titles
     assert "Quit Usage Monitor" in titles
     assert "🟢 DeepSeek: ok 12.34 USD | API key quota: 58% left" in titles
-
-
-def test_auth_providers_hidden_until_toggled():
-    app = build_app()
-    assert not any(t.startswith("🟢 Auth: zai") for t in menu_titles(app))
-    app.auth_item.callback(app.auth_item)  # simulate clicking "Mostrar auth"
-    assert any(t.startswith("🟢 Auth: zai") for t in menu_titles(app))
-    assert app.auth_item.state == 1
-    app.auth_item.callback(app.auth_item)
-    assert not any(t.startswith("🟢 Auth: zai") for t in menu_titles(app))
-    assert app.auth_item.state == 0
 
 
 def test_inactive_providers_hidden_until_toggled():

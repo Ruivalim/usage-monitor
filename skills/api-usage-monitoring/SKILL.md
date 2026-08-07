@@ -49,7 +49,7 @@ Provider registry lives at `~/.config/usagemon/providers.yaml` (sample in repo `
 security add-generic-password -a default -s api-usage-monitor/deepseek -w 'sk-...'
 ```
 
-Supported config types: `deepseek`, `kimi`, `openai-compatible`, `generic-http`, `placeholder`, `hermes-account-usage`, `anthropic-subscription`, `hermes-auth`, `hermes-nous`, `hermes-state-db`.
+Supported config types: `deepseek`, `kimi`, `openai-compatible`, `generic-http`, `openai`, `supergrok`, `grok`, `grok-subscription`, `xai`, `placeholder`, `hermes-account-usage`, `anthropic-subscription`, `hermes-auth`, `hermes-nous`, `hermes-state-db`.
 
 The `hermes-*` types (plus `anthropic-subscription`) are an optional integration: without a Hermes install they report `unavailable` and everything else keeps working. Install the optional skill/plugin bridge with `scripts/install-hermes-integration.sh`.
 
@@ -67,6 +67,8 @@ Menu bar app is optional and requires `rumps` (`pip install 'usage-monitor[menub
 | Kimi Coding | OAuth `api.kimi.com/coding/v1/usages` | Subscription |
 | OpenAI Codex | Hermes `account_usage` (optional) | Subscription |
 | DeepSeek | `/user/balance` API | Credits |
+| SuperGrok | Grok CLI `~/.grok/auth.json` → weekly pool (`supergrok` / `grok`) | Subscription |
+| xAI API | Management API prepaid balance (`xai`) | Credits |
 | Nous Portal | Portal credit lines | Credits |
 | Z.ai / GLM | Credential pool placeholder | Credits |
 | Hermes auth | `hermes auth list` (optional) | Auth state |
@@ -92,4 +94,4 @@ Served by the standalone app; also mounted under `/api/plugins/api-usage-monitor
 
 ## External Adapters
 
-Drop `.py` files in `~/.config/usagemon/adapters/` with a `check()` function returning a dict/ProviderStatus/list. Ship adapters: `claude_cli.py`, `kimi_cli.py`.
+Drop `.py` files in `~/.config/usagemon/adapters/` with a `check()` function returning a dict/ProviderStatus/list. Ship adapters: `claude_cli.py`, `kimi_cli.py`, `supergrok.py`.

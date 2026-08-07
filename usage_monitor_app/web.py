@@ -253,7 +253,6 @@ def dashboard_html(config: AppConfig | None = None) -> str:
       </div>
       <div class="controls">
         <span class="overall" id="overall"><span class="dot"></span><span id="overallText">…</span></span>
-        <label class="toggle" data-i18n-title="showAuthTitle"><input type="checkbox" id="showAuth" onchange="toggleAuth(this.checked)"> <span data-i18n="showAuth">show auth</span></label>
         <button class="ghost" id="startupBtn" onclick="toggleStartup()" data-i18n="startupLoading">startup…</button>
         <button class="ghost" id="logoutBtn" onclick="logout()" hidden data-i18n="logout">Logout</button>
         <button class="primary" id="refreshBtn" onclick="refresh()" data-i18n="refresh">Refresh</button>
@@ -281,16 +280,16 @@ let lang = '__LANG__';
 const I18N = {
   en: {
     loading:'loading…', loginHint:'This dashboard requires authentication.', username:'username', password:'password', signIn:'Sign in',
-    showAuth:'show auth', showAuthTitle:'Show auth:* providers from Hermes auth', startupLoading:'startup…', startupOn:'startup: on', startupOff:'startup: off', trayActive:'tray active', logout:'Logout', refresh:'Refresh', collecting:'collecting…',
+    startupLoading:'startup…', startupOn:'startup: on', startupOff:'startup: off', trayActive:'tray active', logout:'Logout', refresh:'Refresh', collecting:'collecting…',
     history:'History', historyHint:'height = number of alerts per snapshot', providers:'providers', ok:'ok', warning:'warning', error:'error', idle:'no data / muted',
-    balance:'balance', usage:'usage', remaining:'remaining', resetIn:'resets in', now:'now', noData:'no data', noVisible:'No visible providers. Configure <code>providers.yaml</code> or enable "show auth".', noSnapshots:'No snapshots yet. Click Refresh.',
+    balance:'balance', usage:'usage', remaining:'remaining', resetIn:'resets in', now:'now', noData:'no data', noVisible:'No visible providers. Add entries to <code>providers.yaml</code>.', noSnapshots:'No snapshots yet. Click Refresh.',
     invalid:'Invalid credentials.', expired:'Session expired or credentials are invalid.', muteOn:'Relevance disabled: excluded from overall/alerts. Click to re-enable', muteOff:'Relevant: counts in overall/alerts. Click to mute', removeStartup:'Remove server and tray from startup? The current server keeps running until logout.', startupOnTitle:'Remove LaunchAgents from startup (current server keeps running until logout)', startupOffTitle:'Install LaunchAgents (server + tray) at startup'
   },
   pt: {
     loading:'carregando…', loginHint:'Este dashboard exige autenticação.', username:'usuário', password:'senha', signIn:'Entrar',
-    showAuth:'mostrar auth', showAuthTitle:'Mostrar providers auth:* do Hermes auth', startupLoading:'startup…', startupOn:'startup: on', startupOff:'startup: off', trayActive:'tray ativo', logout:'Sair', refresh:'Atualizar', collecting:'coletando…',
+    startupLoading:'startup…', startupOn:'startup: on', startupOff:'startup: off', trayActive:'tray ativo', logout:'Sair', refresh:'Atualizar', collecting:'coletando…',
     history:'Histórico', historyHint:'altura = nº de alertas por snapshot', providers:'providers', ok:'ok', warning:'atenção', error:'erro', idle:'sem dado / mudos',
-    balance:'saldo', usage:'gasto', remaining:'restante', resetIn:'reset em', now:'agora', noData:'sem dados', noVisible:'Nenhum provider visível. Configure <code>providers.yaml</code> ou ative "mostrar auth".', noSnapshots:'Sem snapshots ainda. Clique em Atualizar.',
+    balance:'saldo', usage:'gasto', remaining:'restante', resetIn:'reset em', now:'agora', noData:'sem dados', noVisible:'Nenhum provider visível. Adicione entradas em <code>providers.yaml</code>.', noSnapshots:'Sem snapshots ainda. Clique em Atualizar.',
     invalid:'Credenciais inválidas.', expired:'Sessão expirada ou credenciais inválidas.', muteOn:'Relevância desligada: fora do overall/alertas. Clique para reativar', muteOff:'Relevante: conta no overall/alertas. Clique para silenciar', removeStartup:'Remover server e tray do startup? O servidor atual continua rodando até o logout.', startupOnTitle:'Remover LaunchAgents do startup (o servidor atual continua rodando até o logout)', startupOffTitle:'Instalar LaunchAgents (server + tray) para abrir no startup'
   }
 };
@@ -365,8 +364,7 @@ function logout() {
 }
 
 function visibleProviders(providers) {
-  const showAuth = document.getElementById('showAuth').checked;
-  return (providers || []).filter(p => showAuth || !String(p.id).startsWith('auth:'));
+  return providers || [];
 }
 
 function effectiveRelevant(p) {
@@ -507,11 +505,6 @@ async function toggleRelevant(id, wasMuted) {
   api('./refresh', {method:'POST'}).then(() => load()).catch(() => {});
 }
 
-function toggleAuth(on) {
-  localStorage.setItem('usageMonitorShowAuth', on ? '1' : '0');
-  renderProviders();
-}
-
 async function loadStartup() {
   const btn = document.getElementById('startupBtn');
   try {
@@ -575,9 +568,6 @@ async function boot() {
   authRequired = !!config.auth_required;
   lang = ((config.dashboard || {}).language === 'pt') ? 'pt' : 'en';
   applyLanguage();
-  const stored = localStorage.getItem('usageMonitorShowAuth');
-  const showAuth = stored === null ? !!(config.dashboard || {}).show_auth : stored === '1';
-  document.getElementById('showAuth').checked = showAuth;
   document.getElementById('logoutBtn').hidden = !authRequired;
   if (authRequired && !localStorage.getItem(AUTH_KEY)) { showGate(''); return; }
   start();

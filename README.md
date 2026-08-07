@@ -116,6 +116,8 @@ The schema is browsable at `/docs` and `/openapi.json`.
 |---|---|---|
 | DeepSeek | `api.deepseek.com/user/balance` | Credits |
 | Kimi / Moonshot | Moonshot balance endpoint | Credits |
+| SuperGrok / Grok subscription | Grok CLI session → weekly usage pool | Subscription |
+| xAI API credits | Management API prepaid balance | Credits |
 | Any OpenAI-compatible server | `/models` or `/credits` | Reachability / credits |
 | Claude / Anthropic | Hermes Anthropic account usage | Subscription windows |
 | OpenAI Codex / ChatGPT | Hermes `account_usage` | Subscription windows |

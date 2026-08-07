@@ -36,10 +36,13 @@ Why `rumps` first: fastest path, enough for local personal app, easy to replace 
 
 ## Phase 3 — provider intelligence
 
-- [ ] Read-only Hermes profile discovery.
+- [x] YAML-only collect (no auto-load of adapters/*.py).
+- [x] Multi-sub: same `type` multiple times with unique `id` + display `name`.
+- [x] SuperGrok weekly pool via Grok CLI session.
+- [ ] Codex via Codex CLI / local state (no Hermes) — pending research.
+- [ ] Auto-discovery: detect installed CLIs and **suggest/write** providers.yaml entries (never inject into collect without YAML).
+- [ ] Read-only Hermes profile discovery (optional).
 - [x] Read-only `state.db` usage adapter for configured Hermes DB paths/profiles.
-- [ ] Merge “spent/used” from Hermes sessions with “remaining” from provider APIs.
-- [ ] Generic OpenAI-compatible credits parser improvements.
 - [x] External price-table cost-estimation library.
 - [ ] Surface price-table estimates in snapshots/dashboard beyond state.db details.
 - [ ] Provider-specific thresholds.

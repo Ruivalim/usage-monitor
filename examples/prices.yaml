@@ -46,7 +46,7 @@ providers:
 
   grok:
     currency: USD
-    source: TBD
+    source: https://docs.x.ai/developers/models
     models: {}
 
   zai:

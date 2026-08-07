@@ -15,7 +15,7 @@ development only.
 Shape::
 
     dashboard:
-      show_auth: false        # default state of the "show auth" toggle
+
       theme: light            # light | dark
       language: en            # en | pt
 
@@ -165,12 +165,11 @@ def generate_password(length: int = 24) -> str:
 
 @dataclass
 class DashboardConfig:
-    show_auth: bool = False
     theme: str = DEFAULT_THEME
     language: str = DEFAULT_LANGUAGE
 
     def public_dict(self) -> dict[str, Any]:
-        return {"show_auth": self.show_auth, "theme": self.theme, "language": self.language}
+        return {"theme": self.theme, "language": self.language}
 
 
 @dataclass
@@ -244,7 +243,6 @@ def _dashboard_from(data: dict[str, Any]) -> DashboardConfig:
     if lang.lower() in ("pt-br", "pt_br"):
         lang = "pt"
     return DashboardConfig(
-        show_auth=_as_bool(raw.get("show_auth"), False),
         theme=theme if theme in ("light", "dark") else DEFAULT_THEME,
         language=lang if lang in ("en", "pt") else DEFAULT_LANGUAGE,
     )

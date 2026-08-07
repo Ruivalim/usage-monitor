@@ -84,12 +84,14 @@ def test_load_prices_tolerates_errors(tmp_path, providers_file):
 
 
 def test_example_providers_file_covers_every_registry_type():
-    """The shipped example doubles as documentation, so it must stay complete."""
+    """Shipped example documents every canonical registry type (aliases optional)."""
     data = core.load_provider_config(EXAMPLE_PROVIDERS)
     types = {p["type"] for p in data["providers"]}
-    assert types == set(core.REGISTRY)
+    # Aliases like `grok` → supergrok need not each have a dedicated example entry.
+    aliases = {"grok"}
+    assert set(core.REGISTRY) - aliases <= types
     ids = [p["id"] for p in data["providers"]]
-    assert len(ids) == len(set(ids))  # ids key overrides.json, so no duplicates
+    assert len(ids) == len(set(ids))
 
 
 def test_provider_items_from_config_merges_defaults_and_skips_disabled():
@@ -99,16 +101,12 @@ def test_provider_items_from_config_merges_defaults_and_skips_disabled():
             {"id": "on", "type": "placeholder"},
             {"id": "off", "type": "placeholder", "enabled": False},
             "not-a-dict",
-            {"id": "auth", "type": "hermes-auth"},
         ],
     }
-    items = core._provider_items_from_config(config, include_auth=True)
+    items = core._provider_items_from_config(config)
     ids = [i["id"] for i in items]
-    assert ids == ["on", "auth"]
+    assert ids == ["on"]
     assert items[0]["timeout"] == 7.0
-
-    items_no_auth = core._provider_items_from_config(config, include_auth=False)
-    assert [i["id"] for i in items_no_auth] == ["on"]
 
 
 def test_app_config_loads_dashboard_language_and_intervals(tmp_path, monkeypatch):
@@ -117,7 +115,6 @@ def test_app_config_loads_dashboard_language_and_intervals(tmp_path, monkeypatch
     path = tmp_path / "config.yaml"
     path.write_text(
         "dashboard:\n"
-        "  show_auth: true\n"
         "  language: pt\n"
         "  theme: light\n"
         "intervals:\n"
@@ -126,7 +123,6 @@ def test_app_config_loads_dashboard_language_and_intervals(tmp_path, monkeypatch
         encoding="utf-8",
     )
     cfg = app_config.load_app_config(path)
-    assert cfg.dashboard.show_auth is True
     assert cfg.dashboard.language == "pt"
     assert cfg.intervals.refresh_seconds == 42
     assert cfg.intervals.menubar_seconds == 7

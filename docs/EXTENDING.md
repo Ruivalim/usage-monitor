@@ -128,10 +128,11 @@ usage_monitor_app/core.py
 Steps:
 
 1. add an adapter function returning `ProviderStatus` or `list[ProviderStatus]`;
-2. register it in `REGISTRY`;
+2. register it in `REGISTRY` (and any aliases, e.g. `xai` / `grok`);
 3. add an example in `examples/providers.yaml` if useful;
 4. update `docs/CONFIGURATION.md` and this file;
-5. run smoke tests:
+5. add unit tests under `tests/test_adapters.py` with fake HTTP payloads;
+6. run smoke tests:
 
 ```bash
 python3.11 -m compileall usage_monitor_app plugin scripts

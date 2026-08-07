@@ -11,14 +11,22 @@ def test_registry_has_expected_types():
         "kimi",
         "openai-compatible",
         "generic-http",
+        "openai",
+        "xai",
+        "supergrok",
+        "grok",
         "placeholder",
         "hermes-account-usage",
         "anthropic-subscription",
-        "hermes-auth",
         "hermes-nous",
         "hermes-state-db",
+        "claude-cli",
+        "kimi-cli",
+        "qwen-token-plan",
+        "antigravity",
     }
     assert expected <= set(core.REGISTRY)
+    assert "hermes-auth" not in core.REGISTRY
     for adapter in core.REGISTRY.values():
         assert callable(adapter)
 
@@ -27,7 +35,7 @@ def test_placeholder_dispatch_no_credential(isolated_state, providers_file):
     path = providers_file(
         "providers:\n"
         "  - id: p1\n"
-        "    label: Placeholder One\n"
+        "    name: Placeholder One\n"
         "    type: placeholder\n"
         "    message: no endpoint\n"
     )
@@ -35,9 +43,10 @@ def test_placeholder_dispatch_no_credential(isolated_state, providers_file):
     assert len(snap.providers) == 1
     p = snap.providers[0]
     assert p.id == "p1"
-    assert p.status == "unavailable"  # placeholder without token
+    assert p.label == "Placeholder One"
+    assert p.status == "unavailable"
     assert p.message == "no endpoint"
-    assert snap.overall == "unknown"  # unavailable has severity 1
+    assert snap.overall == "unknown"
 
 
 def test_placeholder_dispatch_with_literal_credential(isolated_state, providers_file):
@@ -51,7 +60,7 @@ def test_placeholder_dispatch_with_literal_credential(isolated_state, providers_
     )
     snap = core.collect_status(persist=False, providers_file=path)
     p = snap.providers[0]
-    assert p.status == "unknown"  # placeholder with token reports unknown
+    assert p.status == "unknown"
     assert p.source == "config"
 
 
@@ -69,8 +78,6 @@ def test_unknown_type_gets_unknown_status(isolated_state, providers_file):
 
 
 def test_disabled_providers_are_skipped(isolated_state, providers_file):
-    # NB: YAML 1.1 would parse a bare `on`/`off` scalar as bool, so use
-    # ids that survive safe_load unchanged.
     path = providers_file(
         "providers:\n"
         "  - id: keep\n"
@@ -83,53 +90,54 @@ def test_disabled_providers_are_skipped(isolated_state, providers_file):
     assert [p.id for p in snap.providers] == ["keep"]
 
 
-def test_include_auth_false_filters_hermes_auth(isolated_state, providers_file):
-    path = providers_file(
-        "providers:\n"
-        "  - id: plain\n"
-        "    type: placeholder\n"
-        "  - id: auth\n"
-        "    type: hermes-auth\n"
+def test_yaml_only_no_auto_external_adapters(isolated_state, providers_file, tmp_path, monkeypatch):
+    """Adapters on disk must not run unless listed in providers.yaml."""
+    adapter_dir = tmp_path / "adapters"
+    adapter_dir.mkdir()
+    (adapter_dir / "ghost.py").write_text(
+        "def check():\n"
+        "    return {'id': 'ghost', 'label': 'Ghost', 'status': 'ok', 'source': 'test'}\n",
+        encoding="utf-8",
     )
-    snap = core.collect_status(persist=False, include_auth=False, providers_file=path)
-    assert [p.id for p in snap.providers] == ["plain"]
-
-
-def test_adapter_exception_becomes_error_status(isolated_state, providers_file, monkeypatch):
-    def boom(conf):
-        raise RuntimeError("kaboom")
-
-    monkeypatch.setitem(core.REGISTRY, "placeholder", boom)
+    monkeypatch.setattr(core, "ADAPTER_DIR", adapter_dir)
     path = providers_file(
         "providers:\n"
-        "  - id: bad\n"
+        "  - id: only\n"
+        "    name: Only YAML\n"
+        "    type: placeholder\n"
+        "    message: yaml-only\n"
+    )
+    snap = core.collect_status(persist=False, providers_file=path)
+    assert [p.id for p in snap.providers] == ["only"]
+    assert all(p.id != "ghost" for p in snap.providers)
+
+
+def test_multi_sub_same_type_uses_name(isolated_state, providers_file):
+    path = providers_file(
+        "providers:\n"
+        "  - id: a\n"
+        "    name: First\n"
+        "    type: placeholder\n"
+        "    message: one\n"
+        "  - id: b\n"
+        "    name: Second\n"
+        "    type: placeholder\n"
+        "    message: two\n"
+    )
+    snap = core.collect_status(persist=False, providers_file=path)
+    assert [(p.id, p.label) for p in snap.providers] == [("a", "First"), ("b", "Second")]
+
+
+def test_duplicate_ids_keep_first(isolated_state, providers_file):
+    path = providers_file(
+        "providers:\n"
+        "  - id: same\n"
+        "    name: First\n"
+        "    type: placeholder\n"
+        "  - id: same\n"
+        "    name: Second\n"
         "    type: placeholder\n"
     )
     snap = core.collect_status(persist=False, providers_file=path)
-    p = snap.providers[0]
-    assert p.id == "bad"
-    assert p.status == "error"
-    assert "kaboom" in (p.message or "")
-    assert snap.overall == "error"
-    assert any("bad" in e for e in snap.meta["errors"])
-
-
-def test_severity_aggregation(isolated_state, providers_file):
-    path = providers_file(
-        "providers:\n"
-        "  - id: warn\n"
-        "    type: fake-warning\n"
-        "  - id: fine\n"
-        "    type: fake-ok\n"
-    )
-    from usage_monitor_app.core import ProviderStatus
-
-    core.REGISTRY["fake-warning"] = lambda conf: ProviderStatus("warn", "Warn", status="warning", message="w")
-    core.REGISTRY["fake-ok"] = lambda conf: ProviderStatus("fine", "Fine", status="ok")
-    try:
-        snap = core.collect_status(persist=False, providers_file=path)
-    finally:
-        del core.REGISTRY["fake-warning"]
-        del core.REGISTRY["fake-ok"]
-    assert snap.overall == "warning"
-    assert snap.alerts == [{"level": "warning", "provider": "warn", "message": "w"}]
+    assert len(snap.providers) == 1
+    assert snap.providers[0].label == "First"

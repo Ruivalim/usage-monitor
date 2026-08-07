@@ -425,37 +425,6 @@ def _from_account_usage(provider: str, label: str) -> ProviderStatus:
         return ProviderStatus(provider, label, status="unavailable", source="hermes_account_usage", message=str(exc)[:240])
 
 
-def _adapter_hermes_auth(_conf: dict[str, Any]) -> list[ProviderStatus]:
-    try:
-        proc = subprocess.run(["hermes", "auth", "list"], text=True, capture_output=True, timeout=20)
-        text = (proc.stdout or "") + (proc.stderr or "")
-    except Exception as exc:
-        return [ProviderStatus("hermes-auth", "Hermes auth", status="unavailable", source="cli", message=str(exc)[:240])]
-    providers: list[ProviderStatus] = []
-    current: Optional[ProviderStatus] = None
-    for raw in text.splitlines():
-        line = raw.rstrip()
-        if not line.strip():
-            continue
-        if not line.startswith(" ") and "(" in line:
-            pid = line.split("(", 1)[0].strip()
-            current = ProviderStatus(id=f"auth:{pid}", label=f"Auth: {pid}", status="ok", source="hermes auth list")
-            providers.append(current)
-            continue
-        if current is not None:
-            lower = line.lower()
-            if "rate-limited" in lower:
-                current.status = "rate_limited"
-                current.message = line.strip()
-            elif "exceeded" in lower or "quota" in lower:
-                current.status = "quota_exhausted"
-                current.message = line.strip()
-            current.details.append(line.strip())
-    if not providers:
-        return [ProviderStatus("hermes-auth", "Hermes auth", status="unknown", source="cli", message="No Hermes auth providers listed")]
-    return providers
-
-
 def _adapter_deepseek(conf: dict[str, Any]) -> ProviderStatus:
     token, _base_url, source = _credential(conf)
     if not token:
@@ -510,6 +479,28 @@ def _adapter_kimi(conf: dict[str, Any]) -> ProviderStatus:
         return ProviderStatus(conf["id"], conf.get("label", conf["id"]), status="unavailable", source=source, message=str(exc)[:240])
 
 
+def _openai_error_message(body: Any, fallback: Optional[str] = None) -> Optional[str]:
+    """Normalize OpenAI error payloads and rewrite known dead ends."""
+    msg = fallback
+    if isinstance(body, dict):
+        err = body.get("error") or body.get("message") or body.get("detail")
+        if isinstance(err, dict):
+            msg = str(err.get("message") or err.get("code") or err)[:400]
+        elif err:
+            msg = str(err)[:400]
+    if not msg:
+        return None
+    lower = msg.lower()
+    if "session key" in lower and ("credit_grants" in lower or "dashboard/billing" in lower or "secret" in lower):
+        return (
+            "OpenAI /dashboard/billing/credit_grants only accepts a browser session key "
+            "(sess-...), not a secret/project API key (sk-...). Remaining balance is not "
+            "available via secret keys — use type `openai` with an Admin key for "
+            "/v1/organization/costs, or check platform.openai.com billing."
+        )
+    return msg[:240]
+
+
 def _adapter_openai_compatible(conf: dict[str, Any]) -> ProviderStatus:
     token, base_url, source = _credential(conf)
     label = conf.get("label", conf["id"])
@@ -522,13 +513,476 @@ def _adapter_openai_compatible(conf: dict[str, Any]) -> ProviderStatus:
     try:
         code, body = _http_get_json(url, token, timeout=float(conf.get("timeout", 12.0)), headers=conf.get("headers") if isinstance(conf.get("headers"), dict) else None)
         status, msg = _status_from_http(code, body)
+        msg = _openai_error_message(body, msg) or msg
+        # credit_grants + secret key is a configuration dead end, not a transient error.
+        if msg and "session key" in msg.lower() and "Admin key" in msg:
+            status = "unavailable"
         ps = ProviderStatus(conf["id"], label, status=status, source=source, message=msg)
         if 200 <= code < 300 and isinstance(body, dict):
             currency = str(conf.get("currency") or body.get("currency") or "USD").upper()
-            ps.balance = _money_from_mapping(body.get("data", body) if isinstance(body.get("data", body), dict) else body, ("balance", "credits", "credit", "available", "remaining"), currency)
+            payload = body.get("data", body) if isinstance(body.get("data", body), dict) else body
+            ps.balance = _money_from_mapping(payload, ("balance", "credits", "credit", "available", "remaining", "total_available"), currency)
+            ps.usage = _money_from_mapping(payload, ("usage", "used", "total_used"), currency)
             if ps.balance is None:
                 count = len(body.get("data", [])) if isinstance(body.get("data"), list) else None
                 ps.details.append(f"Endpoint reachable" + (f"; models: {count}" if count is not None else ""))
+        return ps
+    except Exception as exc:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message=str(exc)[:240])
+
+
+def _adapter_openai(conf: dict[str, Any]) -> ProviderStatus:
+    """OpenAI platform spend via the official Organization Costs API.
+
+    Requires an **Admin API key** (``sk-admin-...``) from
+    https://platform.openai.com/settings/organization/admin-keys — regular
+    project secret keys cannot read billing balance, and
+    ``/dashboard/billing/credit_grants`` only accepts browser session keys.
+
+    Reports period **usage** (sum of cost buckets), not remaining prepaid balance
+    (OpenAI does not expose remaining balance on secret/admin keys).
+    """
+    token, base_url, source = _credential(conf)
+    label = conf.get("label", conf["id"])
+    if not token:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message="No OpenAI credential (need Admin API key)")
+    base = str(base_url or "https://api.openai.com").rstrip("/")
+    # Accept base with or without trailing /v1.
+    if base.endswith("/v1"):
+        root = base
+    else:
+        root = f"{base}/v1"
+    days = int(_safe_float(conf.get("limit_days")) or 30)
+    days = max(1, min(days, 180))
+    start_time = int(time.time()) - days * 86400
+    bucket_width = str(conf.get("bucket_width") or "1d")
+    url = f"{root}/organization/costs?start_time={start_time}&limit={days}&bucket_width={bucket_width}"
+    headers: dict[str, str] = {}
+    org = conf.get("organization") or conf.get("org_id") or os.environ.get("OPENAI_ORG_ID")
+    if org:
+        headers["OpenAI-Organization"] = str(org)
+    project = conf.get("project") or conf.get("project_id") or os.environ.get("OPENAI_PROJECT_ID")
+    if project:
+        headers["OpenAI-Project"] = str(project)
+    try:
+        code, body = _http_get_json(url, token, timeout=float(conf.get("timeout", 12.0)), headers=headers or None)
+        status, msg = _status_from_http(code, body)
+        msg = _openai_error_message(body, msg) or msg
+        if code in (401, 403) and msg and "admin" not in (msg or "").lower():
+            # Common: project sk- key against admin-only route.
+            lower = (msg or "").lower()
+            if "api key" in lower or "not allowed" in lower or "permission" in lower or code == 403:
+                msg = (
+                    "OpenAI Costs API needs an Admin key (sk-admin-...), not a project secret key. "
+                    "Create one at platform.openai.com/settings/organization/admin-keys. "
+                    f"Upstream: {(msg or '')[:160]}"
+                )
+                status = "unavailable"
+        ps = ProviderStatus(conf["id"], label, status=status, source=source, message=msg)
+        if not (200 <= code < 300) or not isinstance(body, dict):
+            return ps
+
+        total = 0.0
+        currency = "USD"
+        bucket_count = 0
+        data = body.get("data") if isinstance(body.get("data"), list) else []
+        for bucket in data:
+            if not isinstance(bucket, dict):
+                continue
+            results = bucket.get("results") if isinstance(bucket.get("results"), list) else []
+            if not results and isinstance(bucket.get("amount"), dict):
+                results = [bucket]
+            for row in results:
+                if not isinstance(row, dict):
+                    continue
+                amount = row.get("amount") if isinstance(row.get("amount"), dict) else None
+                if amount is None:
+                    continue
+                value = _safe_float(amount.get("value") if "value" in amount else amount.get("amount"))
+                if value is None:
+                    continue
+                total += value
+                currency = str(amount.get("currency") or currency).upper()
+                bucket_count += 1
+        ps.usage = Money(round(total, 6), currency)
+        ps.details.append(f"costs over last {days}d ({bucket_width} buckets)")
+        if bucket_count:
+            ps.details.append(f"cost rows: {bucket_count}")
+        ps.details.append("remaining balance not exposed via Admin/secret keys")
+        if total <= 0 and not data:
+            ps.details.append("no cost buckets in range (ok if idle)")
+        return ps
+    except Exception as exc:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message=str(exc)[:240])
+
+
+def _xai_cents_value(value: Any) -> Optional[float]:
+    """Parse xAI ``USD Cents`` payloads (``{"val": "-1000"}`` or a bare number)."""
+    if isinstance(value, dict):
+        return _safe_float(value.get("val") if "val" in value else value.get("amount"))
+    return _safe_float(value)
+
+
+def _xai_prepaid_remaining_usd(total_cents: float) -> float:
+    """Convert prepaid ledger total to remaining USD.
+
+    xAI stores prepaid credit as a negative ledger balance (PURCHASE negative,
+    SPEND positive). Remaining prepaid dollars are ``max(0, -cents) / 100``.
+    """
+    return max(0.0, -float(total_cents)) / 100.0
+
+
+def _grok_auth_paths(conf: dict[str, Any] | None = None) -> list[Path]:
+    """Candidate credential files for SuperGrok / Grok Build OAuth sessions.
+
+    Explicit ``auth_path`` / ``USAGE_MONITOR_GROK_AUTH_FILE`` replace the
+    default ``~/.grok/auth.json`` so tests and multi-account setups do not
+    silently fall through to the home session.
+    """
+    conf = conf or {}
+    paths: list[Path] = []
+    for key in ("auth_path", "auth_file"):
+        raw = conf.get(key)
+        if isinstance(raw, str) and raw.strip():
+            paths.append(Path(raw).expanduser())
+    env = os.environ.get("USAGE_MONITOR_GROK_AUTH_FILE") or os.environ.get("GROK_AUTH_FILE")
+    if env:
+        paths.append(Path(env).expanduser())
+    if not paths:
+        paths.append(Path.home() / ".grok" / "auth.json")
+    # Dedup while preserving order.
+    seen: set[str] = set()
+    out: list[Path] = []
+    for p in paths:
+        key = str(p)
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
+
+
+def _load_grok_cli_auth(conf: dict[str, Any] | None = None) -> tuple[Optional[str], Optional[str], str, Optional[str]]:
+    """Load Grok Build / SuperGrok OAuth session from ``~/.grok/auth.json``.
+
+    Returns ``(access_token, user_id, source, error_message)``.
+    File shape (Grok CLI): one entry keyed by ``https://auth.x.ai::<client_id>``
+    with fields ``key`` (bearer), ``user_id``, ``expires_at``, ``refresh_token``.
+    """
+    conf = conf or {}
+    # Explicit credential still wins (literal/env/keychain bearer). user_id must
+    # then come from conf / env because management-style tokens lack it.
+    token, _, source = _credential(conf) if conf.get("credential") else (None, None, "config")
+    user_id = str(conf.get("user_id") or conf.get("userId") or os.environ.get("USAGE_MONITOR_GROK_USER_ID") or "").strip() or None
+    if token and user_id:
+        return token, user_id, source, None
+
+    last_err: Optional[str] = None
+    for path in _grok_auth_paths(conf):
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            last_err = f"Failed to read {path}: {exc}"
+            continue
+        if not isinstance(data, dict) or not data:
+            last_err = f"Empty or invalid Grok auth file: {path}"
+            continue
+        # Prefer the newest non-expired OIDC entry.
+        candidates: list[dict[str, Any]] = []
+        for entry in data.values():
+            if isinstance(entry, dict) and (entry.get("key") or entry.get("access_token")):
+                candidates.append(entry)
+        if not candidates:
+            last_err = f"No session token in {path} — run `grok login`"
+            continue
+        def _exp_key(e: dict[str, Any]) -> float:
+            raw = e.get("expires_at") or e.get("expiresAt") or ""
+            try:
+                return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+            except Exception:
+                return 0.0
+        candidates.sort(key=_exp_key, reverse=True)
+        entry = candidates[0]
+        tok = str(entry.get("key") or entry.get("access_token") or "").strip()
+        uid = str(entry.get("user_id") or entry.get("userId") or entry.get("principal_id") or "").strip()
+        if not tok:
+            last_err = f"Session in {path} has no access token — run `grok login`"
+            continue
+        if not uid:
+            last_err = f"Session in {path} has no user_id — run `grok login`"
+            continue
+        # Soft expiry check; still try the request if slightly past (clock skew).
+        exp_raw = entry.get("expires_at") or entry.get("expiresAt")
+        if exp_raw:
+            try:
+                exp = datetime.fromisoformat(str(exp_raw).replace("Z", "+00:00"))
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if exp.timestamp() < time.time() - 30:
+                    last_err = f"Grok session expired ({exp_raw}) — run `grok login`"
+                    # Keep trying newer entries; if this was the only one, surface the error.
+                    if len(candidates) == 1:
+                        return None, None, f"grok-auth:{path}", last_err
+                    continue
+            except Exception:
+                pass
+        return tok, uid, f"grok-auth:{path}", None
+    return None, None, "grok-auth", last_err or "No Grok OAuth session (~/.grok/auth.json) — run `grok login`"
+
+
+def _adapter_supergrok(conf: dict[str, Any]) -> ProviderStatus:
+    """SuperGrok / X Premium+ **subscription** weekly usage pool.
+
+    Uses the Grok Build CLI chat proxy billing surface (same as ``grok`` CLI
+    ``/usage``): ``GET https://cli-chat-proxy.grok.com/v1/billing?format=credits``
+    with the OAuth session from ``~/.grok/auth.json``.
+
+    This is **not** the developer Management API / prepaid API credits path
+    (see ``xai``). The billing endpoint is unofficial and may change with the
+    Grok CLI; on failure the adapter reports unavailable rather than guessing.
+    """
+    label = conf.get("label", conf["id"])
+    token, user_id, source, err = _load_grok_cli_auth(conf)
+    if not token or not user_id:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message=err or "No SuperGrok session")
+    base = str(
+        conf.get("base_url")
+        or conf.get("proxy_base_url")
+        or os.environ.get("USAGE_MONITOR_GROK_PROXY_BASE")
+        or os.environ.get("GROK_CLI_CHAT_PROXY_BASE_URL")
+        or "https://cli-chat-proxy.grok.com/v1"
+    ).rstrip("/")
+    timeout = float(conf.get("timeout", 12.0))
+    url = f"{base}/billing?format=credits"
+    headers = {
+        "X-XAI-Token-Auth": str(conf.get("token_auth_header") or "xai-grok-cli"),
+        "x-userid": user_id,
+        "x-grok-client-version": str(conf.get("client_version") or os.environ.get("USAGE_MONITOR_GROK_CLIENT_VERSION") or "usage-monitor"),
+        "User-Agent": str(conf.get("user_agent") or "xai-grok-cli"),
+    }
+    try:
+        code, body = _http_get_json(url, token, timeout=timeout, headers=headers)
+        status, msg = _status_from_http(code, body)
+        ps = ProviderStatus(conf["id"], label, status=status, source=source, message=msg)
+        if not (200 <= code < 300) or not isinstance(body, dict):
+            if code in (401, 403):
+                ps.message = "Grok session rejected — run `grok login`"
+            return ps
+
+        cfg = body.get("config") if isinstance(body.get("config"), dict) else body
+        if not isinstance(cfg, dict):
+            ps.status = "unknown"
+            ps.message = "Billing response missing config"
+            return ps
+
+        used_pct = _safe_float(cfg.get("creditUsagePercent") if "creditUsagePercent" in cfg else cfg.get("credit_usage_percent"))
+        if used_pct is None:
+            # Legacy monthlyLimit / used (USD cents)
+            limit_cents = _xai_cents_value(cfg.get("monthlyLimit") or cfg.get("monthly_limit"))
+            used_cents = _xai_cents_value(cfg.get("used"))
+            if limit_cents is not None and limit_cents > 0 and used_cents is not None:
+                used_pct = min(100.0, max(0.0, (used_cents / limit_cents) * 100.0))
+                ps.details.append(f"included used: {used_cents / 100.0:.2f} / {limit_cents / 100.0:.2f} USD")
+
+        period = cfg.get("currentPeriod") if isinstance(cfg.get("currentPeriod"), dict) else (
+            cfg.get("current_period") if isinstance(cfg.get("current_period"), dict) else None
+        )
+        reset_at = None
+        period_label = "Current week"
+        if period:
+            ptype = str(period.get("type") or period.get("period_type") or "")
+            if "MONTH" in ptype.upper():
+                period_label = "Current month"
+            elif "WEEK" in ptype.upper():
+                period_label = "Current week"
+            reset_at = period.get("end") or period.get("endTime")
+            start = period.get("start") or period.get("startTime")
+            if start:
+                ps.details.append(f"period start: {start}")
+        if not reset_at:
+            reset_at = cfg.get("billingPeriodEnd") or cfg.get("billing_period_end")
+
+        if used_pct is not None:
+            used_pct = max(0.0, min(100.0, float(used_pct)))
+            ps.windows.append(UsageWindow(
+                label=period_label,
+                used_percent=round(used_pct, 2),
+                remaining_percent=round(max(0.0, 100.0 - used_pct), 2),
+                reset_at=str(reset_at) if reset_at else None,
+            ))
+            if used_pct >= 100:
+                ps.status = "quota_exhausted"
+                ps.message = ps.message or "Weekly SuperGrok usage exhausted"
+            elif used_pct >= float(conf.get("warn_percent") or 85) and ps.status == "ok":
+                ps.status = "warning"
+                ps.message = ps.message or "Weekly SuperGrok usage nearly exhausted"
+        else:
+            ps.status = "unknown"
+            ps.message = ps.message or "Billing config returned no usage percent"
+            ps.details.append("Unrecognized SuperGrok billing shape")
+
+        # Product breakdown (Chat / Build / Imagine / …)
+        products = cfg.get("productUsage") or cfg.get("product_usage") or []
+        if isinstance(products, list):
+            for item in products:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("product") or item.get("name") or "product")
+                pct = _safe_float(item.get("usagePercent") if "usagePercent" in item else item.get("usage_percent"))
+                if pct is not None:
+                    ps.details.append(f"{name}: {pct:g}% of pool")
+
+        prepaid = _xai_cents_value(cfg.get("prepaidBalance") or cfg.get("prepaid_balance"))
+        if prepaid is not None and prepaid > 0:
+            # Extra Usage Credits / top-ups (positive remaining USD cents).
+            ps.balance = Money(round(prepaid / 100.0, 4), "USD")
+            ps.details.append(f"extra credits: {prepaid / 100.0:.2f} USD")
+
+        on_demand_used = _xai_cents_value(cfg.get("onDemandUsed") or cfg.get("on_demand_used"))
+        on_demand_cap = _xai_cents_value(cfg.get("onDemandCap") or cfg.get("on_demand_cap"))
+        if on_demand_used is not None and on_demand_used > 0:
+            ps.details.append(f"on-demand used: {on_demand_used / 100.0:.2f} USD")
+        if on_demand_cap is not None and on_demand_cap > 0:
+            ps.details.append(f"on-demand cap: {on_demand_cap / 100.0:.2f} USD")
+
+        if cfg.get("isUnifiedBillingUser") is True or cfg.get("is_unified_billing_user") is True:
+            ps.details.append("unified weekly pool")
+        tier = body.get("subscriptionTier") or body.get("subscription_tier") or conf.get("tier")
+        if tier:
+            ps.details.append(f"tier: {tier}")
+        return ps
+    except Exception as exc:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message=str(exc)[:240])
+
+
+def _adapter_xai(conf: dict[str, Any]) -> ProviderStatus:
+    """Grok / xAI prepaid credits via the Management API.
+
+    Needs a **management key** (not a regular inference API key) from
+    https://console.x.ai → Settings → Management Keys. ``team_id`` is optional:
+    when omitted the adapter discovers it from
+    ``GET /auth/management-keys/validation``.
+    """
+    token, base_url, source = _credential(conf)
+    label = conf.get("label", conf["id"])
+    if not token:
+        return ProviderStatus(
+            conf["id"],
+            label,
+            status="unavailable",
+            source=source,
+            message="No xAI management key (credential)",
+        )
+    base = str(base_url or conf.get("management_base_url") or "https://management-api.x.ai").rstrip("/")
+    timeout = float(conf.get("timeout", 12.0))
+    team_id = str(conf.get("team_id") or conf.get("teamId") or "").strip()
+    try:
+        if not team_id:
+            code, body = _http_get_json(f"{base}/auth/management-keys/validation", token, timeout=timeout)
+            status, msg = _status_from_http(code, body)
+            if not (200 <= code < 300) or not isinstance(body, dict):
+                return ProviderStatus(conf["id"], label, status=status, source=source, message=msg or "management key validation failed")
+            team_id = str(body.get("scopeId") or body.get("teamId") or body.get("team_id") or "").strip()
+            if not team_id:
+                return ProviderStatus(
+                    conf["id"],
+                    label,
+                    status="unavailable",
+                    source=source,
+                    message="Management key validation returned no team id; set team_id in providers.yaml",
+                )
+        bal_url = f"{base}/v1/billing/teams/{team_id}/prepaid/balance"
+        code, body = _http_get_json(bal_url, token, timeout=timeout)
+        status, msg = _status_from_http(code, body)
+        ps = ProviderStatus(conf["id"], label, status=status, source=source, message=msg)
+        if not (200 <= code < 300) or not isinstance(body, dict):
+            return ps
+
+        total_cents = _xai_cents_value(body.get("total"))
+        if total_cents is None:
+            ps.status = "unknown"
+            ps.message = "Prepaid balance response missing total"
+            ps.details.append("Balance endpoint returned unrecognized shape")
+            return ps
+
+        remaining = _xai_prepaid_remaining_usd(total_cents)
+        ps.balance = Money(round(remaining, 4), "USD")
+
+        spend_cents = 0.0
+        purchase_cents = 0.0
+        change_count = 0
+        for change in body.get("changes") or []:
+            if not isinstance(change, dict):
+                continue
+            change_count += 1
+            amount = _xai_cents_value(change.get("amount"))
+            if amount is None:
+                continue
+            origin = str(change.get("changeOrigin") or change.get("change_origin") or "").upper()
+            if origin == "SPEND":
+                # SPEND amounts are positive in the ledger.
+                spend_cents += abs(amount)
+            elif origin in ("PURCHASE", "AUTO_PURCHASE", "REFUND", "MANUAL"):
+                # Purchases/refunds are typically negative credits; track magnitude.
+                if amount < 0:
+                    purchase_cents += -amount
+                elif origin == "MANUAL":
+                    # Manual can go either way; only count credit-side for purchased total.
+                    pass
+
+        if spend_cents > 0:
+            ps.usage = Money(round(spend_cents / 100.0, 4), "USD")
+        if purchase_cents > 0:
+            ps.details.append(f"purchased: {purchase_cents / 100.0:.2f} USD")
+        if change_count:
+            ps.details.append(f"ledger entries: {change_count}")
+        ps.details.append(f"team: {team_id}")
+
+        # Optional period usage / postpaid soft limit (best-effort; ignore failures).
+        include_preview = conf.get("include_invoice_preview", True)
+        if include_preview is not False:
+            try:
+                pcode, pbody = _http_get_json(
+                    f"{base}/v1/billing/teams/{team_id}/postpaid/invoice/preview",
+                    token,
+                    timeout=timeout,
+                )
+                if 200 <= pcode < 300 and isinstance(pbody, dict):
+                    core_inv = pbody.get("coreInvoice") if isinstance(pbody.get("coreInvoice"), dict) else {}
+                    prepaid_used = _xai_cents_value(core_inv.get("prepaidCreditsUsed")) if core_inv else None
+                    postpaid = _safe_float(core_inv.get("amountAfterVat") if core_inv else None)
+                    if postpaid is None and core_inv:
+                        postpaid = _xai_cents_value(core_inv.get("totalWithCorr"))
+                    limit_cents = _safe_float(pbody.get("effectiveSpendingLimit"))
+                    cycle = pbody.get("billingCycle") if isinstance(pbody.get("billingCycle"), dict) else None
+                    if prepaid_used is not None and prepaid_used > 0:
+                        used_usd = prepaid_used / 100.0
+                        ps.details.append(f"period prepaid used: {used_usd:.2f} USD")
+                        if ps.usage is None:
+                            ps.usage = Money(round(used_usd, 4), "USD")
+                    if postpaid is not None and postpaid > 0:
+                        ps.details.append(f"period postpaid: {postpaid / 100.0:.2f} USD")
+                    if limit_cents is not None:
+                        ps.details.append(f"postpaid limit: {limit_cents / 100.0:.2f} USD")
+                    if cycle and cycle.get("year") and cycle.get("month"):
+                        ps.details.append(f"billing cycle: {int(cycle['year'])}-{int(cycle['month']):02d}")
+            except Exception:
+                pass
+
+        warn_below = _safe_float(conf.get("warn_below_usd"))
+        if remaining <= 0:
+            # Depleted prepaid: still ok if postpaid limit allows spend, but we
+            # only know that from optional preview details. Mark exhausted when
+            # balance is zero — matches DeepSeek-style credit providers.
+            ps.status = "quota_exhausted"
+            ps.message = ps.message or "Prepaid credits depleted"
+        elif warn_below is not None and remaining < warn_below and ps.status == "ok":
+            ps.status = "warning"
+            ps.message = ps.message or f"Prepaid balance below {warn_below:g} USD"
+        elif remaining < 1.0 and ps.status == "ok" and warn_below is None:
+            ps.status = "warning"
+            ps.message = ps.message or "Prepaid balance under $1"
         return ps
     except Exception as exc:
         return ProviderStatus(conf["id"], label, status="unavailable", source=source, message=str(exc)[:240])
@@ -752,39 +1206,100 @@ def _adapter_hermes_state_db(conf: dict[str, Any]) -> list[ProviderStatus]:
     return out
 
 
+def _display_name(conf: dict[str, Any], fallback: str | None = None) -> str:
+    """UI name for a YAML provider entry: ``name`` > ``label`` > fallback > ``id``."""
+    return str(conf.get("name") or conf.get("label") or fallback or conf.get("id") or "provider")
+
+
+def _adapter_module_paths(stem: str) -> list[Path]:
+    """Search order for file-backed adapters: user dir, then shipped plugin/adapters."""
+    paths = [ADAPTER_DIR / f"{stem}.py"]
+    # Package-relative: usage_monitor_app/../plugin/adapters/<stem>.py
+    shipped = Path(__file__).resolve().parent.parent / "plugin" / "adapters" / f"{stem}.py"
+    paths.append(shipped)
+    return paths
+
+
+def _load_adapter_module(stem: str) -> Any:
+    for path in _adapter_module_paths(stem):
+        if not path.is_file():
+            continue
+        spec = importlib.util.spec_from_file_location(f"usage_adapter_{stem}", path)
+        if spec is None or spec.loader is None:
+            continue
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    raise FileNotFoundError(f"Adapter module not found: {stem}.py (searched ADAPTER_DIR and plugin/adapters)")
+
+
+def _file_adapter(stem: str) -> Callable[[dict[str, Any]], ProviderStatus | list[ProviderStatus]]:
+    """Run a plugin/adapters-style ``check()`` only when declared in providers.yaml."""
+
+    def run(conf: dict[str, Any]) -> ProviderStatus | list[ProviderStatus]:
+        try:
+            mod = _load_adapter_module(stem)
+        except Exception as exc:
+            return ProviderStatus(
+                str(conf.get("id") or stem),
+                _display_name(conf, stem),
+                status="unavailable",
+                source="adapter-file",
+                message=str(exc)[:240],
+            )
+        check = getattr(mod, "check", None)
+        if not callable(check):
+            return ProviderStatus(
+                str(conf.get("id") or stem),
+                _display_name(conf, stem),
+                status="unavailable",
+                source="adapter-file",
+                message=f"{stem}.py has no check()",
+            )
+        try:
+            try:
+                result = check(conf)  # type: ignore[misc]
+            except TypeError:
+                result = check()
+        except Exception as exc:
+            return ProviderStatus(
+                str(conf.get("id") or stem),
+                _display_name(conf, stem),
+                status="error",
+                source="adapter-file",
+                message=str(exc)[:240],
+            )
+        return result  # type: ignore[return-value]
+
+    return run
+
+
 REGISTRY: dict[str, Callable[[dict[str, Any]], ProviderStatus | list[ProviderStatus]]] = {
     "deepseek": _adapter_deepseek,
     "kimi": _adapter_kimi,
     "openai-compatible": _adapter_openai_compatible,
     "generic-http": _adapter_openai_compatible,
+    "openai": _adapter_openai,
+    "xai": _adapter_xai,
+    "supergrok": _adapter_supergrok,
+    "grok": _adapter_supergrok,
     "placeholder": _adapter_placeholder,
-    "hermes-account-usage": lambda conf: _from_account_usage(str(conf.get("provider") or conf["id"]), str(conf.get("label") or conf["id"])),
-    "anthropic-subscription": lambda conf: _from_account_usage(str(conf.get("provider") or "anthropic"), str(conf.get("label") or "Claude / Anthropic")),
-    "hermes-auth": _adapter_hermes_auth,
+    "hermes-account-usage": lambda conf: _from_account_usage(
+        str(conf.get("provider") or conf["id"]),
+        _display_name(conf),
+    ),
+    "anthropic-subscription": lambda conf: _from_account_usage(
+        str(conf.get("provider") or "anthropic"),
+        _display_name(conf, "Claude / Anthropic"),
+    ),
     "hermes-nous": _adapter_hermes_nous,
     "hermes-state-db": _adapter_hermes_state_db,
+    # File-backed (YAML must list them — no auto-load of adapters/*.py)
+    "claude-cli": _file_adapter("claude_cli"),
+    "kimi-cli": _file_adapter("kimi_cli"),
+    "qwen-token-plan": _file_adapter("qwen_token_plan"),
+    "antigravity": _file_adapter("antigravity"),
 }
-
-
-def _load_external_adapters() -> list[Callable[[], ProviderStatus | dict[str, Any] | list[Any]]]:
-    adapters = []
-    if not ADAPTER_DIR.exists():
-        return adapters
-    for path in sorted(ADAPTER_DIR.glob("*.py")):
-        if path.name.startswith("_"):
-            continue
-        try:
-            spec = importlib.util.spec_from_file_location(f"usage_adapter_{path.stem}", path)
-            if spec is None or spec.loader is None:
-                continue
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            check = getattr(mod, "check", None)
-            if callable(check):
-                adapters.append(check)
-        except Exception:
-            continue
-    return adapters
 
 
 def _coerce_window(value: Any) -> UsageWindow:
@@ -828,23 +1343,31 @@ def _coerce_provider(value: Any) -> ProviderStatus:
     raise TypeError(f"Unsupported adapter return: {type(value).__name__}")
 
 
-def _provider_items_from_config(config: dict[str, Any], *, include_auth: bool) -> list[dict[str, Any]]:
+def _provider_items_from_config(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Enabled YAML entries only. Nothing outside providers.yaml is collected."""
     providers = config.get("providers", [])
     if not isinstance(providers, list):
         return []
     defaults = config.get("defaults", {}) if isinstance(config.get("defaults"), dict) else {}
-    out = []
+    out: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     for item in providers:
         if not isinstance(item, dict) or item.get("enabled") is False:
             continue
         merged = {**defaults, **item}
-        if not include_auth and str(merged.get("type")) == "hermes-auth":
+        pid = str(merged.get("id") or "").strip()
+        if not pid:
             continue
+        if pid in seen_ids:
+            # Later duplicate ids are skipped; id keys overrides/history.
+            continue
+        seen_ids.add(pid)
         out.append(merged)
     return out
 
 
-def collect_status(*, include_auth: bool = True, persist: bool = True, providers_file: Path = PROVIDERS_FILE) -> MonitorSnapshot:
+def collect_status(*, persist: bool = True, providers_file: Path = PROVIDERS_FILE) -> MonitorSnapshot:
+    """Collect status for every enabled entry in providers.yaml only."""
     providers: list[ProviderStatus] = []
     errors: list[str] = []
     try:
@@ -852,29 +1375,36 @@ def collect_status(*, include_auth: bool = True, persist: bool = True, providers
     except Exception as exc:
         config = {"providers": []}
         errors.append(f"config:{providers_file}: {exc}")
-    for conf in _provider_items_from_config(config, include_auth=include_auth):
+    for conf in _provider_items_from_config(config):
         adapter_type = str(conf.get("type") or "placeholder")
+        conf_id = str(conf.get("id") or adapter_type)
+        conf_label = _display_name(conf)
         adapter = REGISTRY.get(adapter_type)
         if adapter is None:
-            providers.append(ProviderStatus(str(conf.get("id") or adapter_type), str(conf.get("label") or conf.get("id") or adapter_type), status="unknown", source="config", message=f"Unknown provider type: {adapter_type}"))
+            providers.append(ProviderStatus(conf_id, conf_label, status="unknown", source="config", message=f"Unknown provider type: {adapter_type}"))
             continue
         try:
             result = adapter(conf)
+            # list return = multi-emit (e.g. hermes-state-db); keep adapter ids.
+            # single return = YAML owns id + display name (multi-sub of same type).
+            force_identity = not isinstance(result, list)
             items = result if isinstance(result, list) else [result]
             for item in items:
-                providers.append(_coerce_provider(item))
+                ps = _coerce_provider(item)
+                if force_identity:
+                    ps.id = conf_id
+                    ps.label = conf_label
+                providers.append(ps)
         except Exception as exc:
-            errors.append(f"{conf.get('id', adapter_type)}: {exc}")
-            providers.append(ProviderStatus(id=str(conf.get("id") or adapter_type), label=str(conf.get("label") or "Adapter error"), status="error", source="adapter", message=str(exc)[:240], details=[traceback.format_exc(limit=2)]))
-    for adapter in _load_external_adapters():
-        try:
-            result = adapter()
-            items = result if isinstance(result, list) else [result]
-            for item in items:
-                providers.append(_coerce_provider(item))
-        except Exception as exc:
-            errors.append(f"{getattr(adapter, '__name__', 'adapter')}: {exc}")
-            providers.append(ProviderStatus(id=f"adapter-error:{getattr(adapter, '__name__', 'adapter')}", label="Adapter error", status="error", source="adapter", message=str(exc)[:240], details=[traceback.format_exc(limit=2)]))
+            errors.append(f"{conf_id}: {exc}")
+            providers.append(ProviderStatus(
+                id=conf_id,
+                label=conf_label,
+                status="error",
+                source="adapter",
+                message=str(exc)[:240],
+                details=[traceback.format_exc(limit=2)],
+            ))
     overrides = load_overrides()
     for p in providers:
         entry = overrides.get(p.id)
@@ -885,13 +1415,24 @@ def collect_status(*, include_auth: bool = True, persist: bool = True, providers
     worst = 0
     for p in providers:
         if not p.relevant:
-            continue  # muted by the user: shown in UIs but ignored for overall/alerts
+            continue
         sev = severity_order.get(p.status, 1)
         worst = max(worst, sev)
         if sev >= 2:
             alerts.append({"level": "error" if sev >= 3 else "warning", "provider": p.id, "message": p.message or p.status})
     overall = "ok" if worst == 0 else "unknown" if worst == 1 else "warning" if worst == 2 else "error"
-    snap = MonitorSnapshot(_now(), overall, providers, alerts, meta={"provider_config": str(providers_file), "external_adapter_dir": str(ADAPTER_DIR), "prices_file": str(PRICES_FILE), "errors": errors})
+    snap = MonitorSnapshot(
+        _now(),
+        overall,
+        providers,
+        alerts,
+        meta={
+            "provider_config": str(providers_file),
+            "adapter_dir": str(ADAPTER_DIR),
+            "prices_file": str(PRICES_FILE),
+            "errors": errors,
+        },
+    )
     if persist:
         SNAPSHOT_FILE.parent.mkdir(parents=True, exist_ok=True)
         with SNAPSHOT_FILE.open("a", encoding="utf-8") as f:
@@ -899,8 +1440,8 @@ def collect_status(*, include_auth: bool = True, persist: bool = True, providers
     return snap
 
 
-def snapshot_json(*, pretty: bool = False, include_auth: bool = True, persist: bool = True) -> str:
-    data = _to_plain(collect_status(include_auth=include_auth, persist=persist))
+def snapshot_json(*, pretty: bool = False, persist: bool = True) -> str:
+    data = _to_plain(collect_status(persist=persist))
     return json.dumps(data, indent=2 if pretty else None, ensure_ascii=False, sort_keys=True)
 
 

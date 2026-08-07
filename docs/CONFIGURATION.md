@@ -152,6 +152,9 @@ in-process, which is correct but does the backend's work twice.
 | `kimi` | Kimi balance endpoint variants, still endpoint-discovery sensitive |
 | `openai-compatible` | Generic OpenAI-compatible reachability/balance endpoint |
 | `generic-http` | Alias for generic OpenAI-compatible HTTP check |
+| `openai` | OpenAI org costs via Admin key (`/v1/organization/costs`) |
+| `supergrok` / `grok` / `grok-subscription` | SuperGrok weekly usage pool via Grok CLI session (`~/.grok/auth.json`) |
+| `xai` | xAI Management API prepaid balance (developer API credits) |
 | `placeholder` | Lists a provider without a stable usage endpoint yet |
 | `hermes-account-usage` | Optional Hermes `agent.account_usage` bridge |
 | `anthropic-subscription` | Optional Hermes Anthropic account-usage bridge |
@@ -223,7 +226,115 @@ Credits endpoint:
 The generic parser looks for these numeric fields:
 
 ```text
-balance, credits, credit, available, remaining
+balance, credits, credit, available, remaining, total_available
+```
+
+## OpenAI platform costs (`openai`)
+
+**Important:** remaining prepaid balance is **not** available with a normal
+secret/project API key (`sk-...`). The old
+`/v1/dashboard/billing/credit_grants` route only accepts a browser **session**
+key (`sess-...`) and will return an error for secret keys — that is expected,
+not a bug in this monitor.
+
+What works with an official key:
+
+| Goal | Key type | Adapter |
+|---|---|---|
+| Period spend (last N days) | **Admin** key (`sk-admin-...`) | `type: openai` → `/v1/organization/costs` |
+| Remaining credit balance | Browser session only | Not supported (use dashboard) |
+| Key still valid / models list | Project secret key | `openai-compatible` + `/v1/models` |
+
+```yaml
+- id: openai-api
+  label: OpenAI API costs
+  type: openai
+  limit_days: 30          # 1–180, default 30
+  # organization: org-... # optional OpenAI-Organization header
+  credential:
+    source: keychain
+    service: api-usage-monitor/openai
+    account: default
+```
+
+```bash
+# Create an Admin key at:
+#   https://platform.openai.com/settings/organization/admin-keys
+security add-generic-password -U \
+  -a default \
+  -s api-usage-monitor/openai \
+  -w 'sk-admin-...'
+```
+
+Reports `usage` (sum of cost buckets in USD), not `balance`. Details note that
+remaining balance is not exposed via Admin/secret keys.
+
+## SuperGrok subscription (`supergrok` / `grok`)
+
+Tracks the **paid SuperGrok / X Premium+ weekly usage pool** (Chat, Build,
+Imagine, Voice, …) — the same bar as Settings → Usage on grok.com.
+
+There is no stable public consumer usage API. This adapter reuses the
+**unofficial** Grok Build CLI billing surface:
+
+```text
+GET https://cli-chat-proxy.grok.com/v1/billing?format=credits
+```
+
+Credentials come from the Grok CLI OAuth session (not an API key):
+
+```bash
+grok login   # writes ~/.grok/auth.json
+```
+
+```yaml
+- id: supergrok
+  label: SuperGrok
+  type: supergrok      # aliases: grok, grok-subscription
+  # auth_path: ~/.grok/auth.json
+  # warn_percent: 85
+```
+
+Behavior:
+
+- Reads `key` + `user_id` from `~/.grok/auth.json` (or `USAGE_MONITOR_GROK_AUTH_FILE`).
+- Reports one `windows[]` entry (current week/month) with `used_percent` /
+  `remaining_percent` / `reset_at`.
+- Product breakdown (`GrokBuild`, `GrokImagine`, …) goes into `details`.
+- Extra Usage Credits (top-ups) appear as `balance` when present.
+- ≥100% → `quota_exhausted`; ≥ `warn_percent` (default 85) → `warning`.
+- Expired / missing session → `unavailable` with a `grok login` hint.
+
+This endpoint can change when the Grok CLI changes; on failure the adapter
+degrades to `unavailable` / `warning` rather than inventing numbers.
+
+Also shipped as an external adapter: `plugin/adapters/supergrok.py` (drop into
+`~/.config/usagemon/adapters/` for auto-load without a `providers.yaml` entry).
+
+## xAI developer API credits (`xai`)
+
+Prepaid **API** credits (console.x.ai teams), not SuperGrok. xAI does **not**
+expose these on the inference API key. Billing lives on the **Management API**
+(`https://management-api.x.ai`) and needs a management key from
+[console.x.ai → Settings → Management Keys](https://console.x.ai/team/default/management-keys).
+
+```yaml
+- id: xai-api
+  label: xAI API credits
+  type: xai
+  # team_id: <uuid>    # optional; auto-discovered from key validation
+  # warn_below_usd: 5
+  credential:
+    source: keychain
+    service: api-usage-monitor/xai
+    account: default
+```
+
+```bash
+security add-generic-password -U \
+  -a default \
+  -s api-usage-monitor/xai \
+  -w 'YOUR_XAI_MANAGEMENT_KEY'
 ```
 
 ## Runtime env vars

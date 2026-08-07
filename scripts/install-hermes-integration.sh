@@ -49,7 +49,7 @@ fi
 if [ ! -f "${HERMES_HOME}/usage/prices.example.yaml" ] && [ -f "${REPO_DIR}/examples/prices.yaml" ]; then
     cp -f "${REPO_DIR}/examples/prices.yaml" "${HERMES_HOME}/usage/prices.example.yaml"
 fi
-for adapter in claude_cli.py kimi_cli.py qwen_token_plan.py; do
+for adapter in claude_cli.py kimi_cli.py qwen_token_plan.py supergrok.py; do
     if [ -f "${REPO_DIR}/plugin/adapters/${adapter}" ]; then
         cp -f "${REPO_DIR}/plugin/adapters/${adapter}" "${ADAPTERS_DIR}/"
     fi

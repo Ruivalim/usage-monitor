@@ -3,9 +3,6 @@
 #   USAGE_MONITOR_AUTH_PASSWORD or USAGE_MONITOR_AUTH_PASSWORD_HASH
 
 dashboard:
-  # Default state of the "show auth" toggle.
-  show_auth: false
-
   # en | pt
   language: en
 
