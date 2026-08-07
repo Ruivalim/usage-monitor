@@ -23,6 +23,12 @@ Shape::
       refresh_seconds: 900    # backend scheduler interval
       menubar_seconds: 300    # tray auto-refresh interval
 
+    logging:
+      enabled: false
+      level: info             # debug | info | warning | error
+      path: ~/.config/usagemon/logs/usagemon.log
+      only: []                # empty = all when enabled; e.g. [antigravity]
+
     auth:
       enabled: false
       realm: usage-monitor
@@ -214,10 +220,29 @@ class AuthConfig:
 
 
 @dataclass
+class LoggingConfig:
+    """Provider check logging (JSON lines under ``path``)."""
+
+    enabled: bool = False
+    level: str = "info"
+    path: str | None = None
+    only: list[str] = field(default_factory=list)
+
+    def public_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "level": self.level,
+            "path": self.path,
+            "only": list(self.only),
+        }
+
+
+@dataclass
 class AppConfig:
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     intervals: IntervalConfig = field(default_factory=IntervalConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
     path: str | None = None
 
     def public_dict(self) -> dict[str, Any]:
@@ -225,7 +250,13 @@ class AppConfig:
 
         Deliberately excludes the username, the hash, and the realm.
         """
-        return {"auth_required": self.auth.enabled, "dashboard": self.dashboard.public_dict(), "intervals": self.intervals.public_dict()}
+        return {
+            "auth_required": self.auth.enabled,
+            "dashboard": self.dashboard.public_dict(),
+            "intervals": self.intervals.public_dict(),
+            "logging": self.logging.public_dict(),
+        }
+
 
 
 def _as_int(value: Any, default: int, *, minimum: int = 0) -> int:
@@ -281,6 +312,28 @@ def _auth_from(data: dict[str, Any]) -> AuthConfig:
     )
 
 
+def _logging_from(data: dict[str, Any]) -> LoggingConfig:
+    raw = data.get("logging") if isinstance(data.get("logging"), dict) else {}
+    level = _clean(raw.get("level")) or "info"
+    if level not in ("debug", "info", "warning", "error"):
+        level = "info"
+    only_raw = raw.get("only") or raw.get("providers") or []
+    only: list[str] = []
+    if isinstance(only_raw, str):
+        only = [x.strip() for x in only_raw.split(",") if x.strip()]
+    elif isinstance(only_raw, (list, tuple)):
+        only = [str(x).strip() for x in only_raw if str(x).strip()]
+    elif isinstance(only_raw, dict):
+        only = [str(k).strip() for k, v in only_raw.items() if _as_bool(v, False)]
+    path = _clean(raw.get("path"))
+    return LoggingConfig(
+        enabled=_as_bool(raw.get("enabled"), False),
+        level=level,
+        path=path,
+        only=only,
+    )
+
+
 def load_app_config(path: Path | None = None) -> AppConfig:
     """Load ``config.yaml``; a missing or unreadable file yields defaults."""
     target = Path(path).expanduser() if path else CONFIG_FILE
@@ -290,7 +343,13 @@ def load_app_config(path: Path | None = None) -> AppConfig:
         data = {}
     if not isinstance(data, dict):
         data = {}
-    return AppConfig(dashboard=_dashboard_from(data), auth=_auth_from(data), intervals=_intervals_from(data), path=str(target))
+    return AppConfig(
+        dashboard=_dashboard_from(data),
+        auth=_auth_from(data),
+        intervals=_intervals_from(data),
+        logging=_logging_from(data),
+        path=str(target),
+    )
 
 
 # --- writing config.yaml -----------------------------------------------------

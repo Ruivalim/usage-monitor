@@ -1380,6 +1380,26 @@ def _provider_items_from_config(config: dict[str, Any]) -> list[dict[str, Any]]:
 
 def collect_status(*, persist: bool = True, providers_file: Path = PROVIDERS_FILE) -> MonitorSnapshot:
     """Collect status for every enabled entry in providers.yaml only."""
+    from . import plog
+
+    try:
+        from .config import load_app_config
+        from .plog import LogSettings
+
+        app_cfg = load_app_config()
+        log_cfg = app_cfg.logging
+        path = Path(log_cfg.path).expanduser() if log_cfg.path else (APP_HOME / "logs" / "usagemon.log")
+        plog.configure(
+            LogSettings(
+                enabled=bool(log_cfg.enabled),
+                level=str(log_cfg.level or "info"),
+                path=path,
+                only=set(log_cfg.only or []),
+            )
+        )
+    except Exception:
+        plog.configure()
+
     providers: list[ProviderStatus] = []
     errors: list[str] = []
     try:
@@ -1393,30 +1413,43 @@ def collect_status(*, persist: bool = True, providers_file: Path = PROVIDERS_FIL
         conf_label = _display_name(conf)
         adapter = REGISTRY.get(adapter_type)
         if adapter is None:
+            with plog.provider_scope(conf):
+                plog.warning("unknown provider type", type=adapter_type)
             providers.append(ProviderStatus(conf_id, conf_label, status="unknown", source="config", message=f"Unknown provider type: {adapter_type}"))
             continue
-        try:
-            result = adapter(conf)
-            # list return = multi-emit (e.g. hermes-state-db); keep adapter ids.
-            # single return = YAML owns id + display name (multi-sub of same type).
-            force_identity = not isinstance(result, list)
-            items = result if isinstance(result, list) else [result]
-            for item in items:
-                ps = _coerce_provider(item)
-                if force_identity:
-                    ps.id = conf_id
-                    ps.label = conf_label
-                providers.append(ps)
-        except Exception as exc:
-            errors.append(f"{conf_id}: {exc}")
-            providers.append(ProviderStatus(
-                id=conf_id,
-                label=conf_label,
-                status="error",
-                source="adapter",
-                message=str(exc)[:240],
-                details=[traceback.format_exc(limit=2)],
-            ))
+        with plog.provider_scope(conf):
+            try:
+                t0 = time.time()
+                result = adapter(conf)
+                # list return = multi-emit (e.g. hermes-state-db); keep adapter ids.
+                # single return = YAML owns id + display name (multi-sub of same type).
+                force_identity = not isinstance(result, list)
+                items = result if isinstance(result, list) else [result]
+                for item in items:
+                    ps = _coerce_provider(item)
+                    if force_identity:
+                        ps.id = conf_id
+                        ps.label = conf_label
+                    providers.append(ps)
+                    plog.info(
+                        "check done",
+                        status=ps.status,
+                        source=ps.source,
+                        windows=len(ps.windows),
+                        status_message=ps.message,
+                        elapsed_ms=int((time.time() - t0) * 1000),
+                    )
+            except Exception as exc:
+                plog.exception("check failed", exc)
+                errors.append(f"{conf_id}: {exc}")
+                providers.append(ProviderStatus(
+                    id=conf_id,
+                    label=conf_label,
+                    status="error",
+                    source="adapter",
+                    message=str(exc)[:240],
+                    details=[traceback.format_exc(limit=2)],
+                ))
     overrides = load_overrides()
     for p in providers:
         entry = overrides.get(p.id)
@@ -1433,6 +1466,11 @@ def collect_status(*, persist: bool = True, providers_file: Path = PROVIDERS_FIL
         if sev >= 2:
             alerts.append({"level": "error" if sev >= 3 else "warning", "provider": p.id, "message": p.message or p.status})
     overall = "ok" if worst == 0 else "unknown" if worst == 1 else "warning" if worst == 2 else "error"
+    log_path = None
+    try:
+        log_path = str(plog.get_settings().path) if plog.get_settings().enabled else None
+    except Exception:
+        pass
     snap = MonitorSnapshot(
         _now(),
         overall,
@@ -1443,6 +1481,7 @@ def collect_status(*, persist: bool = True, providers_file: Path = PROVIDERS_FIL
             "adapter_dir": str(ADAPTER_DIR),
             "prices_file": str(PRICES_FILE),
             "errors": errors,
+            "log_path": log_path,
         },
     )
     if persist:

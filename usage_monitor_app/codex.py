@@ -381,10 +381,19 @@ def fetch_usage(tokens: dict[str, Any], conf: dict[str, Any] | None = None) -> P
 
 
 def check_provider(conf: dict[str, Any]) -> ProviderStatus:
+    try:
+        from . import plog
+    except Exception:
+        plog = None  # type: ignore
+
     conf_id = str(conf.get("id") or "codex")
     label = _display_name(conf, "Codex")
     tokens, source, persist_hint = _load_tokens(conf)
+    if plog:
+        plog.debug("token source", source=source, has_access=bool(tokens.get("access_token")), has_refresh=bool(tokens.get("refresh_token")))
     if not tokens.get("access_token") and not tokens.get("refresh_token"):
+        if plog:
+            plog.warning("no codex session")
         return ProviderStatus(
             conf_id,
             label,
@@ -394,12 +403,18 @@ def check_provider(conf: dict[str, Any]) -> ProviderStatus:
         )
     try:
         if _needs_refresh(tokens) and tokens.get("refresh_token"):
+            if plog:
+                plog.info("refreshing access token")
             tokens = refresh_tokens(tokens)
             _persist_tokens(tokens, persist_hint)
     except Exception as exc:
+        if plog:
+            plog.exception("token refresh failed", exc)
         # Try with existing access token; if refresh failed hard, still attempt usage.
         if not tokens.get("access_token"):
             return ProviderStatus(conf_id, label, status="error", source=source, message=str(exc)[:240])
+    if plog:
+        plog.debug("fetch usage", url=usage_url(conf))
     ps = fetch_usage(tokens, conf)
     if ps.source == "codex":
         ps.source = source if source != "none" else "codex"

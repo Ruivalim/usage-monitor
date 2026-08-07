@@ -69,6 +69,22 @@ DEFAULT_WARN_PCT = 15.0
 POLL_INTERVAL = 0.4
 
 
+def _plog():
+    try:
+        from usage_monitor_app import plog as _p
+
+        return _p
+    except Exception:
+        return None
+
+
+def _log(level: str, msg: str, **extra: Any) -> None:
+    p = _plog()
+    if p is None:
+        return
+    getattr(p, level, p.info)(msg, **extra)
+
+
 def _env_float(name: str, default: float) -> float:
     raw = os.environ.get(name, "").strip()
     if not raw:
@@ -165,27 +181,80 @@ def _listen_ports(pid: int) -> list[str]:
 
 def _get_user_status(port: str, timeout: float = 3.0) -> Optional[dict[str, Any]]:
     """POST an empty Connect request; None when this port is not the plain-HTTP one."""
+    url = f"http://127.0.0.1:{port}{RPC_PATH}"
     req = urllib.request.Request(
-        f"http://127.0.0.1:{port}{RPC_PATH}",
+        url,
         data=b"{}",
         headers={"Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception:
+            body = json.loads(resp.read().decode("utf-8"))
+            has_q = _has_quota(body)
+            _log("debug", "rpc ok", port=port, has_quota=has_q, shape=_payload_shape(body) if not has_q else None)
+            return body
+    except Exception as exc:
+        _log("debug", "rpc fail", port=port, error=str(exc)[:160])
         return None
+
+
+def _model_configs(payload: Optional[dict[str, Any]]) -> list[Any]:
+    if not isinstance(payload, dict):
+        return []
+    user_status = payload.get("userStatus") or payload.get("user_status") or {}
+    if not isinstance(user_status, dict):
+        return []
+    cascade = (
+        user_status.get("cascadeModelConfigData")
+        or user_status.get("cascade_model_config_data")
+        or {}
+    )
+    if not isinstance(cascade, dict):
+        return []
+    configs = cascade.get("clientModelConfigs") or cascade.get("client_model_configs") or []
+    return configs if isinstance(configs, list) else []
+
+
+def _quota_fraction(quota: dict[str, Any]) -> Any:
+    if not isinstance(quota, dict):
+        return None
+    for key in ("remainingFraction", "remaining_fraction", "remainingPercent", "remaining_percent"):
+        if key in quota and quota[key] is not None:
+            return quota[key]
+    return None
 
 
 def _has_quota(payload: Optional[dict[str, Any]]) -> bool:
     if not payload:
         return False
-    configs = (
-        (payload.get("userStatus") or {})
-        .get("cascadeModelConfigData", {})
-        .get("clientModelConfigs", [])
-    )
-    return any((c.get("quotaInfo") or {}).get("remainingFraction") is not None for c in configs)
+    for conf in _model_configs(payload):
+        if not isinstance(conf, dict):
+            continue
+        quota = conf.get("quotaInfo") or conf.get("quota_info") or {}
+        if _quota_fraction(quota) is not None:
+            return True
+    return False
+
+
+def _payload_shape(payload: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Compact shape summary for debug logs (no PII beyond structural keys)."""
+    if not isinstance(payload, dict):
+        return {"kind": type(payload).__name__}
+    us = payload.get("userStatus") or payload.get("user_status")
+    shape: dict[str, Any] = {"top_keys": list(payload.keys())[:20]}
+    if isinstance(us, dict):
+        shape["userStatus_keys"] = list(us.keys())[:30]
+        cascade = us.get("cascadeModelConfigData") or us.get("cascade_model_config_data")
+        if isinstance(cascade, dict):
+            shape["cascade_keys"] = list(cascade.keys())[:20]
+            configs = cascade.get("clientModelConfigs") or cascade.get("client_model_configs") or []
+            shape["model_configs"] = len(configs) if isinstance(configs, list) else 0
+            if isinstance(configs, list) and configs:
+                first = configs[0] if isinstance(configs[0], dict) else {}
+                shape["first_model_keys"] = list(first.keys())[:20] if isinstance(first, dict) else []
+                q = first.get("quotaInfo") or first.get("quota_info") if isinstance(first, dict) else None
+                shape["first_quota"] = list(q.keys())[:15] if isinstance(q, dict) else type(q).__name__
+    return shape
 
 
 def _running_agy_pids() -> list[int]:
@@ -197,22 +266,35 @@ def _running_agy_pids() -> list[int]:
 
 
 def _first_quota_response(pid: int) -> Optional[dict[str, Any]]:
+    last_ok: Optional[dict[str, Any]] = None
     for port in _listen_ports(pid):
         payload = _get_user_status(port)
+        if payload is None:
+            continue
+        last_ok = payload
         if _has_quota(payload):
             return payload
-    return None
+    # Prefer a successful RPC body even without quotaInfo so callers can log shape
+    # and optionally surface "answered but no windows".
+    return last_ok
 
 
 def _fetch_from_running() -> Optional[dict[str, Any]]:
-    for pid in _running_agy_pids():
+    pids = _running_agy_pids()
+    _log("debug", "reuse scan", pids=pids)
+    for pid in pids:
+        ports = _listen_ports(pid)
+        _log("debug", "running agy", pid=pid, ports=ports)
         payload = _first_quota_response(pid)
         if payload is not None:
+            _log("info", "reuse hit", pid=pid)
             return payload
+    _log("debug", "reuse miss")
     return None
 
 
 def _fetch_from_spawn(binary: str, timeout: float, settle: float) -> Optional[dict[str, Any]]:
+    _log("info", "spawn start", binary=binary, timeout=timeout, settle=settle)
     master, slave = pty.openpty()
     os.set_blocking(master, False)
     env = {**os.environ, "TERM": "xterm-256color"}
@@ -225,31 +307,52 @@ def _fetch_from_spawn(binary: str, timeout: float, settle: float) -> Optional[di
         env=env,
     )
     os.close(slave)
+    _log("debug", "spawned", pid=proc.pid)
     try:
         deadline = time.time() + timeout
         payload = None
+        attempts = 0
         while time.time() < deadline:
             _drain(master)  # the TUI keeps painting; a full pty buffer would stall it
             if proc.poll() is not None:
+                _log("warning", "agy exited early", returncode=proc.returncode, attempts=attempts)
                 return None
+            attempts += 1
+            ports = _listen_ports(proc.pid)
+            if attempts == 1 or attempts % 10 == 0:
+                _log("debug", "poll", attempt=attempts, ports=ports, elapsed=round(timeout - (deadline - time.time()), 1))
             payload = _first_quota_response(proc.pid)
-            if payload is not None:
+            if payload is not None and _has_quota(payload):
+                _log("info", "quota rpc ready", attempt=attempts, ports=ports)
                 break
+            if payload is not None and not _has_quota(payload):
+                # Keep polling: server may answer before quotaInfo is populated.
+                if attempts == 1 or attempts % 15 == 0:
+                    _log("debug", "rpc body still missing quota", attempt=attempts, shape=_payload_shape(payload))
+                payload = None
             time.sleep(POLL_INTERVAL)
         if payload is None:
+            ports = _listen_ports(proc.pid)
+            _log("warning", "spawn timeout", attempts=attempts, ports=ports, pid=proc.pid)
             return None
+        if not _has_quota(payload):
+            _log("warning", "rpc body without quota fields", shape=_payload_shape(payload), attempts=attempts)
+            # Still return the body so check() can report "no quota windows" vs pure timeout.
+            return payload
         # Values measured stable from the first successful read, but re-read
         # once after a short settle so a slow refresh cannot hand back defaults.
         if settle > 0:
             time.sleep(settle)
             _drain(master)
             refreshed = _first_quota_response(proc.pid)
-            if refreshed is not None:
+            if refreshed is not None and _has_quota(refreshed):
                 payload = refreshed
+                _log("debug", "quota re-read after settle")
         return payload
     finally:
         _drain(master)
         _terminate(proc)
+        _log("debug", "spawn terminated", pid=proc.pid)
         try:
             os.close(master)
         except OSError:
@@ -291,27 +394,28 @@ def _family(model_label: str) -> str:
 
 def _pools(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Group models sharing a quota bucket into one window each."""
-    configs = (
-        (payload.get("userStatus") or {})
-        .get("cascadeModelConfigData", {})
-        .get("clientModelConfigs", [])
-    )
+    configs = _model_configs(payload)
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     for conf in configs:
-        quota = conf.get("quotaInfo") or {}
-        fraction = quota.get("remainingFraction")
+        if not isinstance(conf, dict):
+            continue
+        quota = conf.get("quotaInfo") or conf.get("quota_info") or {}
+        fraction = _quota_fraction(quota) if isinstance(quota, dict) else None
         if fraction is None:
             continue
         try:
             fraction = float(fraction)
+            # remainingPercent is 0–100; remainingFraction is 0–1
+            if fraction > 1.0:
+                fraction = fraction / 100.0
         except (TypeError, ValueError):
             continue
-        reset = str(quota.get("resetTime") or "")
+        reset = str((quota or {}).get("resetTime") or (quota or {}).get("reset_time") or "")
         key = (f"{fraction:.6f}", reset)
         bucket = grouped.setdefault(
             key, {"fraction": fraction, "reset": reset, "models": [], "families": []}
         )
-        label = str(conf.get("label") or "model")
+        label = str(conf.get("label") or conf.get("name") or "model")
         bucket["models"].append(label)
         family = _family(label)
         if family not in bucket["families"]:
@@ -403,6 +507,7 @@ def check(conf: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     cache_ttl = _conf_float(conf, "cache_ttl", env="USAGE_MONITOR_AGY_CACHE_TTL", default=DEFAULT_CACHE_TTL)
     cached = _read_cache(cache_ttl, conf)
     if cached is not None:
+        _log("info", "cache hit", ttl=cache_ttl)
         result = _build_result(cached, "agy_rpc (cached)", conf)
         age = int(time.time() - _cache_path(conf).stat().st_mtime)
         result["details"].append(f"Cached {age}s ago")
@@ -410,6 +515,7 @@ def check(conf: Optional[dict[str, Any]] = None) -> dict[str, Any]:
 
     binary = _conf_str(conf, "bin", "agy_bin", env="USAGE_MONITOR_AGY_BIN") or shutil.which("agy") or ""
     reuse = _conf_bool(conf, "reuse", "reuse_running", env="USAGE_MONITOR_AGY_REUSE")
+    _log("info", "check config", binary=binary or None, reuse=reuse, cache_ttl=cache_ttl)
 
     payload = None
     source = "agy_rpc"
@@ -420,22 +526,28 @@ def check(conf: Optional[dict[str, Any]] = None) -> dict[str, Any]:
 
     if payload is None:
         if not binary:
+            _log("error", "binary missing")
             return unavailable("`agy` binary not found (set bin: in providers.yaml or USAGE_MONITOR_AGY_BIN)")
         if not Path(binary).expanduser().exists():
+            _log("error", "binary path missing", binary=binary)
             return unavailable(f"`agy` binary not found at {binary}")
         timeout = _conf_float(conf, "timeout", env="USAGE_MONITOR_AGY_TIMEOUT", default=DEFAULT_TIMEOUT)
         settle = _conf_float(conf, "settle", env="USAGE_MONITOR_AGY_SETTLE", default=DEFAULT_SETTLE)
         try:
             payload = _fetch_from_spawn(str(Path(binary).expanduser()), timeout, settle)
         except Exception as exc:
+            _log("error", "spawn exception", error=str(exc)[:200])
             return unavailable(f"Failed to query agy: {str(exc)[:200]}")
         if payload is None:
+            _log("error", "no quota after spawn", timeout=timeout)
             return unavailable(
                 f"agy did not report quota data within {timeout:.0f}s "
                 f"(RPC timeout — not the same as 0% plan quota; try timeout: 60 "
                 f"or reuse: true with agy already open)"
             )
 
+    pools = _pools(payload)
+    _log("info", "quota parsed", pools=len(pools), source=source)
     _write_cache(payload, conf)
     return _build_result(payload, source, conf)
 

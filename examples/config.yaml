@@ -18,6 +18,16 @@ intervals:
   # Use 0 to disable tray-triggered refreshes.
   menubar_seconds: 300
 
+logging:
+  # JSON-lines provider check logs (no secrets). Off by default.
+  enabled: false
+  level: debug                 # debug | info | warning | error
+  path: ~/.config/usagemon/logs/usagemon.log
+  # Empty only: = log every provider when enabled.
+  # Restrict e.g. only: [antigravity]  (matches id or type)
+  only:
+    - antigravity
+
 auth:
   # Basic Auth for the dashboard and local API. Disabled by default because the
   # server binds 127.0.0.1. Enable it when proxying, sharing, or just wanting a
