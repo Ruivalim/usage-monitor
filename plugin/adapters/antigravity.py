@@ -216,11 +216,29 @@ def _model_configs(payload: Optional[dict[str, Any]]) -> list[Any]:
 
 
 def _quota_fraction(quota: dict[str, Any]) -> Any:
-    if not isinstance(quota, dict):
+    """Return remaining fraction in 0–1 units, or None if no quota block.
+
+    When plan quota is exhausted, Antigravity often **omits** remainingFraction
+    and only returns ``resetTime``. That case is treated as 0 remaining (not
+    "missing quota data").
+    """
+    if not isinstance(quota, dict) or not quota:
         return None
-    for key in ("remainingFraction", "remaining_fraction", "remainingPercent", "remaining_percent"):
+    for key in ("remainingFraction", "remaining_fraction"):
         if key in quota and quota[key] is not None:
-            return quota[key]
+            try:
+                return float(quota[key])
+            except (TypeError, ValueError):
+                pass
+    for key in ("remainingPercent", "remaining_percent"):
+        if key in quota and quota[key] is not None:
+            try:
+                return float(quota[key]) / 100.0
+            except (TypeError, ValueError):
+                pass
+    # Exhausted windows: only resetTime present
+    if quota.get("resetTime") or quota.get("reset_time"):
+        return 0.0
     return None
 
 
@@ -231,7 +249,8 @@ def _has_quota(payload: Optional[dict[str, Any]]) -> bool:
         if not isinstance(conf, dict):
             continue
         quota = conf.get("quotaInfo") or conf.get("quota_info") or {}
-        if _quota_fraction(quota) is not None:
+        if isinstance(quota, dict) and quota:
+            # Any quotaInfo (even reset-only) is enough to treat the RPC as ready.
             return True
     return False
 
@@ -405,9 +424,7 @@ def _pools(payload: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         try:
             fraction = float(fraction)
-            # remainingPercent is 0–100; remainingFraction is 0–1
-            if fraction > 1.0:
-                fraction = fraction / 100.0
+            fraction = max(0.0, min(1.0, fraction))
         except (TypeError, ValueError):
             continue
         reset = str((quota or {}).get("resetTime") or (quota or {}).get("reset_time") or "")
@@ -474,6 +491,9 @@ def _build_result(payload: dict[str, Any], source: str, conf: Optional[dict[str,
     if not windows:
         status = "unavailable"
         message = "agy answered but reported no quota windows"
+    elif remaining_values and all(r <= 0 for r in remaining_values):
+        status = "quota_exhausted"
+        message = "Plan weekly quota exhausted (0% remaining)"
     elif any(r <= 0 for r in remaining_values):
         status = "quota_exhausted"
         message = "One or more model pools are out of plan quota"
