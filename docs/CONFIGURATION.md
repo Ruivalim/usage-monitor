@@ -361,13 +361,7 @@ security add-generic-password -U \
 | `USAGE_MONITOR_AUTH_PASSWORD_HASH` | unset | Basic Auth PBKDF2 hash from env |
 | `USAGE_MONITOR_LOCAL_TOKEN_FILE` | `$USAGE_MONITOR_HOME/local-token` | Loopback refresh token (0600, refresh routes only) |
 | `USAGE_MONITOR_LANGUAGE` / `USAGE_MONITOR_LANG` | config value | Dashboard/tray language (`en`/`pt`) |
-| `USAGE_MONITOR_AGY_BIN` | PATH lookup | Path to the `agy` binary for `antigravity.py` adapter |
-| `USAGE_MONITOR_AGY_TIMEOUT` | `30` | Seconds to wait for `agy` quota data |
-| `USAGE_MONITOR_AGY_SETTLE` | `1.0` | Extra settle seconds before the final quota read |
-| `USAGE_MONITOR_AGY_CACHE_TTL` | `300` | Cache lifetime in seconds (`0` disables) |
-| `USAGE_MONITOR_AGY_CACHE` | `~/.config/usagemon/cache/antigravity.json` | Cache file path |
-| `USAGE_MONITOR_AGY_REUSE` | unset | `1` reads a running `agy` instead of spawning one |
-| `USAGE_MONITOR_AGY_WARN_PCT` | `15` | Warn below this remaining percent |
+| `USAGE_MONITOR_AGY_*` | see Antigravity section | Also settable per-entry in `providers.yaml` (`timeout`, `reuse`, `bin`, …) |
 
 ## LaunchAgent generation (macOS autostart)
 

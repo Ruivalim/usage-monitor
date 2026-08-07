@@ -23,15 +23,24 @@ spawns its own instance by default rather than reading yours.  Results are
 cached (default 5 min) to keep the monitor's poll loop from spawning `agy`
 every cycle.
 
-Environment variables:
-  USAGE_MONITOR_AGY_BIN         Path to the `agy` binary (default: PATH lookup)
-  USAGE_MONITOR_AGY_TIMEOUT     Seconds to wait for quota data (default: 30)
-  USAGE_MONITOR_AGY_SETTLE      Extra settle seconds after first read (default: 1.0)
-  USAGE_MONITOR_AGY_CACHE_TTL   Cache lifetime in seconds (default: 300, 0 disables)
-  USAGE_MONITOR_AGY_CACHE       Cache file path
-  USAGE_MONITOR_AGY_REUSE       "1" reads a running `agy` instead of spawning
-                                (faster, but the values may be stale)
-  USAGE_MONITOR_AGY_WARN_PCT    Warn below this remaining percent (default: 15)
+Options (providers.yaml entry and/or env; YAML wins):
+
+  bin / agy_bin                 USAGE_MONITOR_AGY_BIN
+  timeout                       USAGE_MONITOR_AGY_TIMEOUT   (default 45)
+  settle                        USAGE_MONITOR_AGY_SETTLE    (default 1.0)
+  cache_ttl                     USAGE_MONITOR_AGY_CACHE_TTL (default 300; 0 disables)
+  cache / cache_path            USAGE_MONITOR_AGY_CACHE
+  reuse / reuse_running         USAGE_MONITOR_AGY_REUSE     (true/1)
+  warn_percent / warn_pct       USAGE_MONITOR_AGY_WARN_PCT  (default 15)
+
+Example::
+
+  - id: antigravity
+    name: Antigravity
+    type: antigravity
+    timeout: 60
+    reuse: true
+    warn_percent: 15
 """
 
 from __future__ import annotations
@@ -70,18 +79,51 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-def _cache_path() -> Path:
-    override = os.environ.get("USAGE_MONITOR_AGY_CACHE", "").strip()
+def _conf_float(conf: dict[str, Any], *keys: str, env: str, default: float) -> float:
+    for key in keys:
+        if key in conf and conf[key] is not None:
+            try:
+                return float(conf[key])
+            except (TypeError, ValueError):
+                pass
+    return _env_float(env, default)
+
+
+def _conf_str(conf: dict[str, Any], *keys: str, env: str = "", default: str = "") -> str:
+    for key in keys:
+        raw = conf.get(key)
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+    if env:
+        return os.environ.get(env, "").strip() or default
+    return default
+
+
+def _conf_bool(conf: dict[str, Any], *keys: str, env: str = "", default: bool = False) -> bool:
+    for key in keys:
+        if key in conf and conf[key] is not None:
+            val = conf[key]
+            if isinstance(val, bool):
+                return val
+            return str(val).strip().lower() in ("1", "true", "yes", "on")
+    if env:
+        return os.environ.get(env, "").strip() == "1"
+    return default
+
+
+def _cache_path(conf: Optional[dict[str, Any]] = None) -> Path:
+    conf = conf or {}
+    override = _conf_str(conf, "cache", "cache_path", env="USAGE_MONITOR_AGY_CACHE")
     if override:
         return Path(override).expanduser()
     config_home = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
     return Path(config_home).expanduser() / "usagemon" / "cache" / "antigravity.json"
 
 
-def _read_cache(ttl: float) -> Optional[dict[str, Any]]:
+def _read_cache(ttl: float, conf: Optional[dict[str, Any]] = None) -> Optional[dict[str, Any]]:
     if ttl <= 0:
         return None
-    path = _cache_path()
+    path = _cache_path(conf)
     try:
         stat = path.stat()
     except OSError:
@@ -94,8 +136,8 @@ def _read_cache(ttl: float) -> Optional[dict[str, Any]]:
         return None
 
 
-def _write_cache(payload: dict[str, Any]) -> None:
-    path = _cache_path()
+def _write_cache(payload: dict[str, Any], conf: Optional[dict[str, Any]] = None) -> None:
+    path = _cache_path(conf)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload), encoding="utf-8")
@@ -294,7 +336,8 @@ def _window_from_pool(pool: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_result(payload: dict[str, Any], source: str) -> dict[str, Any]:
+def _build_result(payload: dict[str, Any], source: str, conf: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    conf = conf or {}
     user_status = payload.get("userStatus") or {}
     tier = user_status.get("userTier") or {}
     plan_status = user_status.get("planStatus") or {}
@@ -320,7 +363,7 @@ def _build_result(payload: dict[str, Any], source: str) -> dict[str, Any]:
     if email:
         details.append(f"Account: {email}")
 
-    warn_pct = _env_float("USAGE_MONITOR_AGY_WARN_PCT", DEFAULT_WARN_PCT)
+    warn_pct = _conf_float(conf, "warn_percent", "warn_pct", env="USAGE_MONITOR_AGY_WARN_PCT", default=DEFAULT_WARN_PCT)
     remaining_values = [p["fraction"] * 100 for p in pools]
     status = "ok"
     message = None
@@ -345,7 +388,9 @@ def _build_result(payload: dict[str, Any], source: str) -> dict[str, Any]:
     }
 
 
-def check() -> dict[str, Any]:
+def check(conf: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    conf = conf if isinstance(conf, dict) else {}
+
     def unavailable(msg: str) -> dict[str, Any]:
         return {
             "id": PROVIDER_ID,
@@ -355,16 +400,16 @@ def check() -> dict[str, Any]:
             "message": msg,
         }
 
-    cache_ttl = _env_float("USAGE_MONITOR_AGY_CACHE_TTL", DEFAULT_CACHE_TTL)
-    cached = _read_cache(cache_ttl)
+    cache_ttl = _conf_float(conf, "cache_ttl", env="USAGE_MONITOR_AGY_CACHE_TTL", default=DEFAULT_CACHE_TTL)
+    cached = _read_cache(cache_ttl, conf)
     if cached is not None:
-        result = _build_result(cached, "agy_rpc (cached)")
-        age = int(time.time() - _cache_path().stat().st_mtime)
+        result = _build_result(cached, "agy_rpc (cached)", conf)
+        age = int(time.time() - _cache_path(conf).stat().st_mtime)
         result["details"].append(f"Cached {age}s ago")
         return result
 
-    binary = os.environ.get("USAGE_MONITOR_AGY_BIN", "").strip() or shutil.which("agy")
-    reuse = os.environ.get("USAGE_MONITOR_AGY_REUSE", "").strip() == "1"
+    binary = _conf_str(conf, "bin", "agy_bin", env="USAGE_MONITOR_AGY_BIN") or shutil.which("agy") or ""
+    reuse = _conf_bool(conf, "reuse", "reuse_running", env="USAGE_MONITOR_AGY_REUSE")
 
     payload = None
     source = "agy_rpc"
@@ -375,24 +420,24 @@ def check() -> dict[str, Any]:
 
     if payload is None:
         if not binary:
-            return unavailable("`agy` binary not found (set USAGE_MONITOR_AGY_BIN)")
-        if not Path(binary).exists():
+            return unavailable("`agy` binary not found (set bin: in providers.yaml or USAGE_MONITOR_AGY_BIN)")
+        if not Path(binary).expanduser().exists():
             return unavailable(f"`agy` binary not found at {binary}")
-        timeout = _env_float("USAGE_MONITOR_AGY_TIMEOUT", DEFAULT_TIMEOUT)
-        settle = _env_float("USAGE_MONITOR_AGY_SETTLE", DEFAULT_SETTLE)
+        timeout = _conf_float(conf, "timeout", env="USAGE_MONITOR_AGY_TIMEOUT", default=DEFAULT_TIMEOUT)
+        settle = _conf_float(conf, "settle", env="USAGE_MONITOR_AGY_SETTLE", default=DEFAULT_SETTLE)
         try:
-            payload = _fetch_from_spawn(binary, timeout, settle)
+            payload = _fetch_from_spawn(str(Path(binary).expanduser()), timeout, settle)
         except Exception as exc:
             return unavailable(f"Failed to query agy: {str(exc)[:200]}")
         if payload is None:
             return unavailable(
                 f"agy did not report quota data within {timeout:.0f}s "
-                f"(RPC timeout — not the same as 0% plan quota; try USAGE_MONITOR_AGY_TIMEOUT=60 "
-                f"or USAGE_MONITOR_AGY_REUSE=1 with agy already open)"
+                f"(RPC timeout — not the same as 0% plan quota; try timeout: 60 "
+                f"or reuse: true with agy already open)"
             )
 
-    _write_cache(payload)
-    return _build_result(payload, source)
+    _write_cache(payload, conf)
+    return _build_result(payload, source, conf)
 
 
 if __name__ == "__main__":

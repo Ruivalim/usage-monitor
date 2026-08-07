@@ -152,6 +152,13 @@ providers:
     name: Antigravity
     type: antigravity
     enabled: false
+    # Options (override env USAGE_MONITOR_AGY_*):
+    # timeout: 60
+    # settle: 1.0
+    # cache_ttl: 300
+    # reuse: true          # use a running agy instead of spawning
+    # warn_percent: 15
+    # bin: /path/to/agy
 
   # OpenAI Codex / ChatGPT subscription via /wham/usage.
   # Login once: usagemon codex-login  (device-code → Keychain)

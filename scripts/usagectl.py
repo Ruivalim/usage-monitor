@@ -140,11 +140,6 @@ def main(argv: list[str] | None = None) -> int:
     auth_hash = auth_sub.add_parser('hash', help='Print a password hash for USAGE_MONITOR_AUTH_PASSWORD_HASH')
     auth_hash.add_argument('--password', default=None, help='password to hash; omit to read from stdin')
 
-    migrate = sub.add_parser('migrate', help='Copy a pre-0.4 ~/.hermes/usage state dir into the standalone app home')
-    migrate.add_argument('--from', dest='source', default=None, help='source dir (default: $HERMES_HOME/usage)')
-    migrate.add_argument('--to', dest='destination', default=None, help='destination dir (default: $USAGE_MONITOR_HOME)')
-    migrate.add_argument('--dry-run', action='store_true', help='list what would be copied without writing anything')
-
     install_cli = sub.add_parser('install-cli', help='Install the standalone `usagemon` wrapper into ~/.local/bin (idempotent)')
     install_cli.add_argument('--repo', default=None, help='path to repo root; defaults to <script>/.. or cwd')
     install_cli.add_argument('--bin-dir', default=None, help='directory to install into (default: ~/.local/bin)')
@@ -301,25 +296,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if cmd == 'auth':
         return _auth_command(args, parser=auth)
-
-    if cmd == 'migrate':
-        from usage_monitor_app import core as usage_core
-        result = usage_core.migrate_legacy_home(
-            Path(args.source).expanduser() if args.source else None,
-            Path(args.destination).expanduser() if args.destination else None,
-            dry_run=args.dry_run,
-        )
-        if result['missing']:
-            print(f"nothing to migrate: {result['missing'][0]} does not exist")
-            return 0
-        prefix = 'would copy' if args.dry_run else 'copied'
-        for path in result['copied']:
-            print(f'{prefix} {path}')
-        for path in result['skipped']:
-            print(f'skipped (already exists) {path}')
-        if not result['copied'] and not result['skipped']:
-            print('nothing to migrate')
-        return 0
 
     if cmd == 'install-cli':
         try:
