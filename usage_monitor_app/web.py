@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
@@ -12,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from . import alerts as _alerts
 from . import autostart as _autostart
+from . import i18n as _i18n
 from .config import (
     LOCAL_TOKEN_HEADER,
     AppConfig,
@@ -66,7 +68,14 @@ def dashboard_html(config: AppConfig | None = None) -> str:
     # document works at the standalone root and under the Hermes plugin prefix.
     # The document itself is public: it carries no data, only the shell. When
     # auth is enabled every data fetch 401s and the login gate takes over.
-    language = (config.dashboard.language if config is not None else "en")
+    #
+    # Strings come from usage_monitor_app/i18n.py — the same table the tray
+    # uses — inlined here as JSON so the page needs no extra round trip and
+    # the two surfaces cannot drift apart.
+    language = _i18n.resolve_language(config.dashboard.language if config is not None else None)
+    # `<\/` keeps a stray `</script` inside a translated string from ending the
+    # script element early; it is a valid JSON escape for `/`.
+    strings = json.dumps(_i18n.translations(language), ensure_ascii=False).replace("</", "<\\/")
     return """<!doctype html>
 <html lang="__LANG__">
 <head>
@@ -234,11 +243,11 @@ def dashboard_html(config: AppConfig | None = None) -> str:
     <form id="loginForm" onsubmit="login(event)">
       <div class="logo">◎</div>
       <h1>API Usage Monitor</h1>
-      <div class="meta" data-i18n="loginHint">This dashboard requires authentication.</div>
-      <label><span data-i18n="username">username</span><input id="authUser" name="username" autocomplete="username" autofocus required></label>
-      <label><span data-i18n="password">password</span><input id="authPass" name="password" type="password" autocomplete="current-password" required></label>
+      <div class="meta" data-i18n="dashboard.gate_intro">This dashboard requires authentication.</div>
+      <label><span data-i18n="dashboard.username">username</span><input id="authUser" name="username" autocomplete="username" autofocus required></label>
+      <label><span data-i18n="dashboard.password">password</span><input id="authPass" name="password" type="password" autocomplete="current-password" required></label>
       <div class="error" id="authError" hidden></div>
-      <button class="primary" type="submit" data-i18n="signIn">Sign in</button>
+      <button class="primary" type="submit" data-i18n="dashboard.sign_in">Sign in</button>
     </form>
   </div>
 
@@ -248,14 +257,14 @@ def dashboard_html(config: AppConfig | None = None) -> str:
         <div class="logo">◎</div>
         <div>
           <h1>API Usage Monitor</h1>
-          <div class="meta" id="meta" data-i18n="loading">loading…</div>
+          <div class="meta" id="meta" data-i18n="dashboard.loading">loading…</div>
         </div>
       </div>
       <div class="controls">
         <span class="overall" id="overall"><span class="dot"></span><span id="overallText">…</span></span>
-        <button class="ghost" id="startupBtn" onclick="toggleStartup()" data-i18n="startupLoading">startup…</button>
-        <button class="ghost" id="logoutBtn" onclick="logout()" hidden data-i18n="logout">Logout</button>
-        <button class="primary" id="refreshBtn" onclick="refresh()" data-i18n="refresh">Refresh</button>
+        <button class="ghost" id="startupBtn" onclick="toggleStartup()" data-i18n="dashboard.startup_loading">startup…</button>
+        <button class="ghost" id="logoutBtn" onclick="logout()" hidden data-i18n="dashboard.logout">Logout</button>
+        <button class="primary" id="refreshBtn" onclick="refresh()" data-i18n="dashboard.refresh">Refresh</button>
       </div>
     </header>
 
@@ -264,8 +273,8 @@ def dashboard_html(config: AppConfig | None = None) -> str:
 
     <section class="panel">
       <div class="panel-head">
-        <h2 data-i18n="history">History</h2>
-        <span class="meta" data-i18n="historyHint">height = number of alerts per snapshot</span>
+        <h2 data-i18n="dashboard.history">History</h2>
+        <span class="meta" data-i18n="dashboard.history_hint">height = number of alerts per snapshot</span>
       </div>
       <div class="chart" id="history"></div>
     </section>
@@ -275,28 +284,20 @@ let lastStatus = null;
 let lastLoadedAt = null;
 let pendingOverrides = {};
 let authRequired = false;
-let lang = '__LANG__';
 
-const I18N = {
-  en: {
-    loading:'loading…', loginHint:'This dashboard requires authentication.', username:'username', password:'password', signIn:'Sign in',
-    startupLoading:'startup…', startupOn:'startup: on', startupOff:'startup: off', trayActive:'tray active', logout:'Logout', refresh:'Refresh', collecting:'collecting…',
-    history:'History', historyHint:'height = number of alerts per snapshot', providers:'providers', ok:'ok', warning:'warning', error:'error', idle:'no data / muted',
-    balance:'balance', usage:'usage', remaining:'remaining', resetIn:'resets in', now:'now', noData:'no data', noVisible:'No visible providers. Add entries to <code>providers.yaml</code>.', noSnapshots:'No snapshots yet. Click Refresh.',
-    invalid:'Invalid credentials.', expired:'Session expired or credentials are invalid.', muteOn:'Relevance disabled: excluded from overall/alerts. Click to re-enable', muteOff:'Relevant: counts in overall/alerts. Click to mute', removeStartup:'Remove server and tray from startup? The current server keeps running until logout.', startupOnTitle:'Remove LaunchAgents from startup (current server keeps running until logout)', startupOffTitle:'Install LaunchAgents (server + tray) at startup'
-  },
-  pt: {
-    loading:'carregando…', loginHint:'Este dashboard exige autenticação.', username:'usuário', password:'senha', signIn:'Entrar',
-    startupLoading:'startup…', startupOn:'startup: on', startupOff:'startup: off', trayActive:'tray ativo', logout:'Sair', refresh:'Atualizar', collecting:'coletando…',
-    history:'Histórico', historyHint:'altura = nº de alertas por snapshot', providers:'providers', ok:'ok', warning:'atenção', error:'erro', idle:'sem dado / mudos',
-    balance:'saldo', usage:'gasto', remaining:'restante', resetIn:'reset em', now:'agora', noData:'sem dados', noVisible:'Nenhum provider visível. Adicione entradas em <code>providers.yaml</code>.', noSnapshots:'Sem snapshots ainda. Clique em Atualizar.',
-    invalid:'Credenciais inválidas.', expired:'Sessão expirada ou credenciais inválidas.', muteOn:'Relevância desligada: fora do overall/alertas. Clique para reativar', muteOff:'Relevante: conta no overall/alertas. Clique para silenciar', removeStartup:'Remover server e tray do startup? O servidor atual continua rodando até o logout.', startupOnTitle:'Remover LaunchAgents do startup (o servidor atual continua rodando até o logout)', startupOffTitle:'Instalar LaunchAgents (server + tray) para abrir no startup'
-  }
-};
-const t = key => (I18N[lang] || I18N.en)[key] || I18N.en[key] || key;
+// Rendered server-side from usage_monitor_app/i18n.py for the configured
+// language: the page never waits on a round trip to know what to say, and the
+// tray reads the very same table, so the two surfaces cannot drift apart.
+const I18N = __STRINGS__;
+
+function t(key, vars) {
+  const text = I18N[key];
+  if (text == null) return key;  // a missing key stays visible instead of blank
+  if (!vars) return text;
+  return Object.keys(vars).reduce((acc, name) => acc.split('{' + name + '}').join(vars[name]), text);
+}
 
 function applyLanguage() {
-  document.documentElement.lang = lang;
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle); });
 }
@@ -324,7 +325,7 @@ function api(path, options) {
   opts.headers = authHeaders(opts.headers);
   return fetch(path, opts).then(resp => {
     if (resp.status === 401) {
-      showGate(t('expired'));
+      showGate(t('dashboard.session_expired'));
       throw new Error('unauthorized');
     }
     return resp;
@@ -351,7 +352,7 @@ async function login(ev) {
   const pass = document.getElementById('authPass').value;
   const token = b64utf8(user + ':' + pass);
   const resp = await fetch('./auth/check', {headers: {'Authorization': 'Basic ' + token, 'X-Requested-With': 'XMLHttpRequest'}});
-  if (!resp.ok) { showGate(t('invalid')); return; }
+  if (!resp.ok) { showGate(t('dashboard.invalid_credentials')); return; }
   localStorage.setItem(AUTH_KEY, token);
   document.getElementById('authPass').value = '';
   hideGate();
@@ -388,7 +389,7 @@ function money(m, tag) {
 function resetLabel(w) {
   if (w.days_until_reset > 0) return w.days_until_reset + 'd';
   if (w.hours_until_reset > 0) return w.hours_until_reset + 'h';
-  if (w.reset_at) return t('now');
+  if (w.reset_at) return t('dashboard.reset_now');
   return null;
 }
 
@@ -398,9 +399,9 @@ function windowBar(w) {
   const used = remaining == null ? null : Math.min(100, Math.max(0, 100 - remaining));
   const cls = used == null ? '' : used >= 95 ? ' err' : used >= 85 ? ' warn' : '';
   const label = resetLabel(w);
-  const reset = label ? ` · ${t('resetIn')} ${esc(label)}` : '';
-  const val = remaining == null ? (w.detail ? esc(w.detail) : t('noData'))
-            : `${remaining.toFixed(0)}% ${t('remaining')}${reset}`;
+  const reset = label ? t('dashboard.reset_in', {label: esc(label)}) : '';
+  const val = remaining == null ? (w.detail ? esc(w.detail) : t('dashboard.no_data'))
+            : t('dashboard.remaining', {percent: remaining.toFixed(0)}) + reset;
   return `<div class="window">
     <div class="row"><span class="name">${esc(w.label)}</span><span class="val">${val}</span></div>
     <div class="track"><div class="fill${cls}" style="width:${used == null ? 0 : used}%"></div></div>
@@ -414,11 +415,11 @@ function renderStats(providers) {
     counts[severity(p.status)]++;
   });
   document.getElementById('stats').innerHTML = [
-    ['', providers.length, t('providers')],
-    ['ok', counts.ok, t('ok')],
-    ['warn', counts.warn, t('warning')],
-    ['err', counts.err, t('error')],
-    ['', counts.idle + counts.muted, t('idle')],
+    ['', providers.length, t('dashboard.stat_providers')],
+    ['ok', counts.ok, t('dashboard.stat_ok')],
+    ['warn', counts.warn, t('dashboard.stat_warn')],
+    ['err', counts.err, t('dashboard.stat_err')],
+    ['', counts.idle + counts.muted, t('dashboard.stat_idle')],
   ].map(([cls, n, k]) => `<div class="stat ${cls}"><div class="n">${n}</div><div class="k">${k}</div></div>`).join('');
 }
 
@@ -428,14 +429,14 @@ function renderProviders() {
   renderStats(providers);
   const host = document.getElementById('providers');
   if (!providers.length) {
-    host.innerHTML = `<div class="empty">${t('noVisible')}</div>`;
+    host.innerHTML = `<div class="empty">${t('dashboard.empty_providers')}</div>`;
     return;
   }
   host.innerHTML = providers.map(p => {
     const muted = !effectiveRelevant(p);
     const muteTitle = muted
-      ? t('muteOn')
-      : t('muteOff');
+      ? t('dashboard.muted_title')
+      : t('dashboard.relevant_title');
     return `
     <article class="card${muted ? ' muted' : ''}" data-status="${esc(p.status)}">
       <div class="top">
@@ -448,8 +449,8 @@ function renderProviders() {
           <span class="chip ${esc(p.status)}">${esc(p.status)}</span>
         </div>
       </div>
-      ${money(p.balance, t('balance'))}
-      ${money(p.usage, t('usage'))}
+      ${money(p.balance, t('dashboard.balance'))}
+      ${money(p.usage, t('dashboard.spent'))}
       ${(p.windows || []).map(windowBar).join('')}
       ${p.message ? `<div class="note">${esc(p.message)}</div>` : ''}
       ${(p.details || []).slice(0, 3).map(d => `<div class="note faint">${esc(d)}</div>`).join('')}
@@ -460,7 +461,7 @@ function renderProviders() {
 function renderHistory(snaps) {
   const host = document.getElementById('history');
   if (!snaps.length) {
-    host.innerHTML = `<div class="empty" style="flex:1">${t('noSnapshots')}</div>`;
+    host.innerHTML = `<div class="empty" style="flex:1">${t('dashboard.empty_history')}</div>`;
     return;
   }
   const max = Math.max(1, ...snaps.map(s => (s.alerts || []).length));
@@ -468,7 +469,8 @@ function renderHistory(snaps) {
     const n = (s.alerts || []).length;
     const cls = n === 0 ? '' : n >= max ? ' err' : ' warn';
     const height = 6 + Math.round((n / max) * 88);
-    return `<div class="bar${cls}" style="height:${height}px" title="${esc(s.checked_at)}: ${n} alerts · ${esc(s.overall || '')}"></div>`;
+    const title = t('dashboard.history_bar_title', {when: esc(s.checked_at), count: n, overall: esc(s.overall || '')});
+    return `<div class="bar${cls}" style="height:${height}px" title="${title}"></div>`;
   }).join('');
 }
 
@@ -477,7 +479,7 @@ function renderMeta() {
   const ago = lastLoadedAt ? Math.round((Date.now() - lastLoadedAt) / 1000) : 0;
   const when = new Date(lastStatus.checked_at);
   const stamp = isNaN(when) ? lastStatus.checked_at : when.toLocaleString();
-  document.getElementById('meta').textContent = lang === 'pt' ? `coletado ${stamp} · lido há ${ago}s` : `collected ${stamp} · read ${ago}s ago`;
+  document.getElementById('meta').textContent = t('dashboard.meta', {stamp: stamp, ago: ago});
   const overall = String(lastStatus.overall || 'unknown');
   const pill = document.getElementById('overall');
   pill.dataset.level = overall;
@@ -512,18 +514,18 @@ async function loadStartup() {
     const menubar = (state.agents || []).find(a => a.label.endsWith('.menubar')) || {};
     const server = (state.agents || []).find(a => a.label.endsWith('.server')) || {};
     const on = !!(server.plist_exists || menubar.plist_exists);
-    btn.textContent = on ? `${t('startupOn')}${menubar.loaded ? ' (' + t('trayActive') + ')' : ''}` : t('startupOff');
-    btn.title = on ? t('startupOnTitle') : t('startupOffTitle');
+    btn.textContent = on ? t('dashboard.startup_on') + (menubar.loaded ? t('dashboard.startup_tray_active') : '') : t('dashboard.startup_off');
+    btn.title = on ? t('dashboard.startup_on_title') : t('dashboard.startup_off_title');
     btn.dataset.on = on ? '1' : '0';
   } catch (e) {
-    btn.textContent = 'startup: ?';
+    btn.textContent = t('dashboard.startup_unknown');
   }
 }
 
 async function toggleStartup() {
   const btn = document.getElementById('startupBtn');
   const on = btn.dataset.on === '1';
-  if (on && !confirm(t('removeStartup'))) return;
+  if (on && !confirm(t('dashboard.startup_confirm'))) return;
   btn.disabled = true;
   try {
     await api('./autostart/' + (on ? 'uninstall' : 'install'), {method:'POST'});
@@ -536,12 +538,12 @@ async function toggleStartup() {
 async function refresh() {
   const btn = document.getElementById('refreshBtn');
   btn.disabled = true;
-  btn.textContent = t('collecting');
+  btn.textContent = t('dashboard.collecting');
   try {
     await api('./refresh', {method:'POST'}).catch(() => {});
   } finally {
     btn.disabled = false;
-    btn.textContent = t('refresh');
+    btn.textContent = t('dashboard.refresh');
     await load().catch(() => {});
   }
 }
@@ -561,13 +563,14 @@ function start() {
 }
 
 async function boot() {
+  applyLanguage();
   let config = {};
   try {
     config = await fetch('./config').then(r => r.ok ? r.json() : {});
   } catch (e) { config = {}; }
+  // Language is already baked into the document; /config only decides whether
+  // the login gate is needed at all.
   authRequired = !!config.auth_required;
-  lang = ((config.dashboard || {}).language === 'pt') ? 'pt' : 'en';
-  applyLanguage();
   document.getElementById('logoutBtn').hidden = !authRequired;
   if (authRequired && !localStorage.getItem(AUTH_KEY)) { showGate(''); return; }
   start();
@@ -576,7 +579,7 @@ async function boot() {
 boot();
 </script>
 </body>
-</html>""".replace("__LANG__", language)
+</html>""".replace("__LANG__", language).replace("__STRINGS__", strings)
 
 
 API_PREFIX = "/api/v1"

@@ -196,8 +196,8 @@ def test_load_populates_title_and_menu():
     titles = menu_titles(app)
     assert "Refresh Now" in titles
     assert "Open Dashboard" in titles
-    assert "Show auth" not in titles
-    assert "Open at startup" in titles
+    assert "Show inactive" in titles
+    assert "Start at Login" in titles
     assert "Quit Usage Monitor" in titles
     assert "🟢 DeepSeek: ok 12.34 USD | API key quota: 58% left" in titles
 

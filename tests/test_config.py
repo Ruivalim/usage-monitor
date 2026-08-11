@@ -123,7 +123,7 @@ def test_app_config_loads_dashboard_language_and_intervals(tmp_path, monkeypatch
         encoding="utf-8",
     )
     cfg = app_config.load_app_config(path)
-    assert cfg.dashboard.language == "pt"
+    assert cfg.dashboard.language == "pt-BR"  # `pt` is an accepted spelling of it
     assert cfg.intervals.refresh_seconds == 42
     assert cfg.intervals.menubar_seconds == 7
 

@@ -17,7 +17,7 @@ Shape::
     dashboard:
 
       theme: light            # light | dark
-      language: en            # en | pt
+      language: en            # en | pt-BR (see usage_monitor_app/i18n.py)
 
     intervals:
       refresh_seconds: 900    # backend scheduler interval
@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 from .core import APP_HOME, CONFIG_FILE, _config_load
+from .i18n import DEFAULT_LANGUAGE, resolve_language
 
 try:
     import yaml  # type: ignore
@@ -60,7 +61,6 @@ PBKDF2_ITERATIONS = 390_000
 DEFAULT_REALM = "usage-monitor"
 DEFAULT_USERNAME = "local"
 DEFAULT_THEME = "light"
-DEFAULT_LANGUAGE = "en"
 DEFAULT_REFRESH_SECONDS = 900
 DEFAULT_MENUBAR_SECONDS = 300
 
@@ -270,12 +270,11 @@ def _as_int(value: Any, default: int, *, minimum: int = 0) -> int:
 def _dashboard_from(data: dict[str, Any]) -> DashboardConfig:
     raw = data.get("dashboard") if isinstance(data.get("dashboard"), dict) else {}
     theme = _clean(raw.get("theme")) or DEFAULT_THEME
-    lang = _clean(os.environ.get("USAGE_MONITOR_LANGUAGE")) or _clean(raw.get("language")) or DEFAULT_LANGUAGE
-    if lang.lower() in ("pt-br", "pt_br"):
-        lang = "pt"
+    # i18n owns language spelling: env wins over the file, unknown tags fall
+    # back to English rather than rendering raw keys.
     return DashboardConfig(
         theme=theme if theme in ("light", "dark") else DEFAULT_THEME,
-        language=lang if lang in ("en", "pt") else DEFAULT_LANGUAGE,
+        language=resolve_language(raw.get("language")),
     )
 
 

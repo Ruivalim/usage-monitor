@@ -20,7 +20,9 @@ router = APIRouter()
 
 @router.get('/', response_class=HTMLResponse)
 async def dashboard():
-    return dashboard_html()
+    # Pass the config so the plugin-mounted dashboard renders in the language
+    # from config.yaml, exactly like the standalone one.
+    return dashboard_html(load_app_config())
 
 
 @router.get('/config')
@@ -28,7 +30,7 @@ async def public_config():
     """Bootstrap flags for the Desktop plugin. Never includes credentials.
 
     Same payload as the standalone dashboard's ``/config`` so both UIs read
-    ``dashboard.show_auth`` from the one config.yaml instead of drifting.
+    their settings from the one config.yaml instead of drifting.
     """
     return load_app_config().public_dict()
 

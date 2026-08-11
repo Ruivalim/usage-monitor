@@ -28,7 +28,8 @@ import webbrowser
 from typing import Any, Callable, Optional
 
 from .core import MonitorSnapshot, ProviderStatus, SNAPSHOT_FILE, collect_status, latest_snapshot
-from .config import DEFAULT_LANGUAGE, load_app_config
+from .config import load_app_config
+from .i18n import SUPPORTED_LANGUAGES, normalize_language, translator
 
 DEFAULT_DASHBOARD_URL = "http://127.0.0.1:9097"
 DEFAULT_REFRESH_INTERVAL = 300
@@ -45,33 +46,10 @@ PROVIDER_ICONS = {
     "unknown": "⚪",
 }
 
-STRINGS = {
-    "en": {
-        "quit": "Quit Usage Monitor", "refresh": "Refresh Now", "dashboard": "Open Dashboard",
-        "startup": "Open at startup", "no_providers": "No providers configured",
-        "collecting": "collecting…", "refresh_failed": "refresh failed", "left": "left",
-        "resets_in": "resets in", "now": "now", "muted": "muted",
-        "show_inactive": "Show inactive", "hidden_inactive": "%d hidden (inactive)",
-    },
-    "pt": {
-        "quit": "Fechar Usage Monitor", "refresh": "Atualizar agora", "dashboard": "Abrir dashboard",
-        "startup": "Abrir no startup", "no_providers": "Nenhum provider configurado",
-        "collecting": "coletando…", "refresh_failed": "falha ao atualizar", "left": "restante",
-        "resets_in": "reset em", "now": "agora", "muted": "mudo",
-        "show_inactive": "Mostrar inativos", "hidden_inactive": "%d oculto(s) (inativos)",
-    },
-}
 
-
-def _lang(value: str | None = None) -> str:
-    value = (value or DEFAULT_LANGUAGE).lower()
-    if value in ("pt-br", "pt_br"):
-        return "pt"
-    return value if value in STRINGS else "en"
-
-
-def _t(language: str, key: str) -> str:
-    return STRINGS.get(_lang(language), STRINGS["en"]).get(key, STRINGS["en"].get(key, key))
+def _t(language: str | None, key: str, **variables: Any) -> str:
+    """One tray string from the shared i18n table (see ``i18n.py``)."""
+    return translator(language)(key, **variables)
 
 
 def _load_rumps() -> Any:
@@ -104,17 +82,18 @@ def provider_line(p: ProviderStatus, *, language: str = "en") -> str:
         parts = []
         for w in p.windows:
             if w.remaining_percent is not None:
-                entry = f"{w.label}: {w.remaining_percent:.0f}% {_t(language, 'left')}"
+                entry = _t(language, "tray.remaining", label=w.label, percent=f"{w.remaining_percent:.0f}")
                 rl = w.reset_label()
                 if rl:
-                    entry += f" · {_t(language, 'resets_in')} {rl if rl != 'now' else _t(language, 'now')}"
+                    when = _t(language, "tray.reset_now") if rl == "now" else rl
+                    entry += _t(language, "tray.reset_in", when=when)
                 parts.append(entry)
         if parts:
             line += " | " + "; ".join(parts)
     if p.message:
         line += f" — {p.message}"
     if not p.relevant:
-        line += f" ({_t(language, 'muted')})"
+        line += _t(language, "tray.muted")
     return line
 
 
@@ -128,7 +107,7 @@ def _reset_label_from_dict(w: dict, *, language: str = "en") -> str | None:
         return f"{int(days)}d"
     if hours is not None and hours > 0:
         return f"{int(hours)}h"
-    return _t(language, "now")
+    return _t(language, "tray.reset_now")
 
 
 def provider_line_from_dict(p: dict, *, language: str = "en") -> str:
@@ -141,17 +120,17 @@ def provider_line_from_dict(p: dict, *, language: str = "en") -> str:
     parts = []
     for w in (p.get("windows") or []):
         if isinstance(w, dict) and w.get("remaining_percent") is not None:
-            entry = f"{w.get('label')}: {float(w['remaining_percent']):.0f}% {_t(language, 'left')}"
+            entry = _t(language, "tray.remaining", label=w.get("label"), percent=f"{float(w['remaining_percent']):.0f}")
             rl = _reset_label_from_dict(w, language=language)
             if rl:
-                entry += f" · {_t(language, 'resets_in')} {rl}"
+                entry += _t(language, "tray.reset_in", when=rl)
             parts.append(entry)
     if parts:
         line += " | " + "; ".join(parts)
     if p.get("message"):
         line += f" — {p['message']}"
     if p.get("relevant") is False:
-        line += f" ({_t(language, 'muted')})"
+        line += _t(language, "tray.muted")
     return line
 
 
@@ -274,8 +253,9 @@ class UsageMonitorMenuBarApp:
         self._startup = startup_manager
         self._dashboard_url = dashboard_url
         self._refresh_interval = max(0, refresh_interval)
-        self._language = _lang(language)
+        self._language = normalize_language(language)
         self._webbrowser = webbrowser_module if webbrowser_module is not None else webbrowser
+        self._t = translator(self._language)
         self._show_inactive = False
         self._refreshing = False
         self._refresh_error: Optional[str] = None
@@ -284,11 +264,11 @@ class UsageMonitorMenuBarApp:
         self._last_request = time.monotonic()
 
         self.app = rumps_module.App("Usage Monitor", title="⚪ APIs", quit_button=None)
-        self.refresh_item = rumps_module.MenuItem(_t(self._language, "refresh"), callback=self.refresh_now)
-        self.dashboard_item = rumps_module.MenuItem(_t(self._language, "dashboard"), callback=self.open_dashboard)
-        self.inactive_item = rumps_module.MenuItem(_t(self._language, "show_inactive"), callback=self.toggle_inactive)
-        self.startup_item = rumps_module.MenuItem(_t(self._language, "startup"), callback=self.toggle_startup)
-        self.quit_item = rumps_module.MenuItem(_t(self._language, "quit"), callback=self.quit_app)
+        self.refresh_item = rumps_module.MenuItem(self._t("tray.refresh_now"), callback=self.refresh_now)
+        self.dashboard_item = rumps_module.MenuItem(self._t("tray.open_dashboard"), callback=self.open_dashboard)
+        self.inactive_item = rumps_module.MenuItem(self._t("tray.show_inactive"), callback=self.toggle_inactive)
+        self.startup_item = rumps_module.MenuItem(self._t("tray.start_at_login"), callback=self.toggle_startup)
+        self.quit_item = rumps_module.MenuItem(self._t("tray.quit"), callback=self.quit_app)
         self._timer = None
         if poll_interval and poll_interval > 0:
             self._timer = rumps_module.Timer(self._tick, poll_interval)
@@ -333,7 +313,7 @@ class UsageMonitorMenuBarApp:
             else:
                 self._startup.install()
         except Exception as exc:
-            self._refresh_error = f"startup: {exc}"
+            self._refresh_error = self._t("tray.startup_error", error=exc)
         self._pending_reload = True
         self._tick(None)
 
@@ -379,8 +359,8 @@ class UsageMonitorMenuBarApp:
             self.app.title = TITLE_ICONS["unknown"] + " APIs"
             lines = []
             if self._refresh_error:
-                lines.append(f"⚠️ {_t(self._language, 'refresh_failed')}: {self._refresh_error}")
-            lines.append(_t(self._language, "collecting"))
+                lines.append(self._t("tray.refresh_failed", error=self._refresh_error))
+            lines.append(self._t("tray.collecting"))
             self._rebuild_menu(lines)
             if not self._refreshing:
                 self._start_refresh()
@@ -395,10 +375,10 @@ class UsageMonitorMenuBarApp:
             visible = kept
         lines = [provider_line_from_dict(p, language=self._language) for p in visible]
         if hidden:
-            lines.append(_t(self._language, "hidden_inactive") % hidden)
+            lines.append(self._t("tray.hidden_inactive", count=hidden))
         if self._refresh_error:
-            lines.insert(0, f"⚠️ {_t(self._language, 'refresh_failed')}: {self._refresh_error}")
-        self._rebuild_menu(lines or [_t(self._language, "no_providers")])
+            lines.insert(0, self._t("tray.refresh_failed", error=self._refresh_error))
+        self._rebuild_menu(lines or [self._t("tray.no_providers")])
 
     def _rebuild_menu(self, provider_lines: list[str]) -> None:
         self.inactive_item.state = 1 if self._show_inactive else 0
@@ -434,7 +414,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--interval", type=int, default=app_config.intervals.menubar_seconds, help="background re-collect interval in seconds; 0 disables")
     parser.add_argument("--poll-interval", type=int, default=_env_int("USAGE_MONITOR_MENUBAR_POLL_INTERVAL", DEFAULT_POLL_INTERVAL), help="UI tick interval in seconds; 0 disables")
     parser.add_argument("--dashboard-url", default=os.environ.get("USAGE_MONITOR_DASHBOARD_URL") or DEFAULT_DASHBOARD_URL, help="URL opened by 'Open Dashboard' and used for refresh requests")
-    parser.add_argument("--language", choices=["en", "pt"], default=app_config.dashboard.language, help="tray language (default: config.yaml dashboard.language)")
+    # Normalized rather than restricted to `choices`, so `pt`, `pt_BR` and
+    # `pt-BR` all work and a typo falls back to English instead of exiting.
+    parser.add_argument(
+        "--language",
+        type=normalize_language,
+        default=app_config.dashboard.language,
+        help=f"tray language, one of {', '.join(SUPPORTED_LANGUAGES)} (default: config.yaml dashboard.language)",
+    )
     parser.add_argument("--no-persist", action="store_true", help="do not append snapshots when collecting locally")
     args = parser.parse_args(argv)
 
