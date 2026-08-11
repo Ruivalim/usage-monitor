@@ -88,6 +88,29 @@ MIGRATABLE_FILES = (
 )
 MIGRATABLE_DIRS = ("adapters",)
 
+# Snapshots are append-only, so the file only grows. Past a cap it is rotated
+# to a single ``.1`` backup, which bounds disk use at 2x the cap and keeps the
+# history charts working across a rotation (readers fall back to the backup).
+DEFAULT_SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024
+
+
+def snapshot_max_bytes() -> int:
+    """Rotation threshold from ``USAGE_MONITOR_SNAPSHOT_MAX_BYTES`` (0 disables)."""
+    raw = os.environ.get("USAGE_MONITOR_SNAPSHOT_MAX_BYTES")
+    if raw is None or not str(raw).strip():
+        return DEFAULT_SNAPSHOT_MAX_BYTES
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        return DEFAULT_SNAPSHOT_MAX_BYTES
+    return max(0, value)
+
+
+def rotated_snapshot_file(path: Path | None = None) -> Path:
+    """Path of the single rotated backup for a snapshot file."""
+    target = Path(path) if path else SNAPSHOT_FILE
+    return target.with_name(target.name + ".1")
+
 
 def migrate_legacy_home(
     source: Path | None = None,
@@ -1485,10 +1508,39 @@ def collect_status(*, persist: bool = True, providers_file: Path = PROVIDERS_FIL
         },
     )
     if persist:
-        SNAPSHOT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with SNAPSHOT_FILE.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(_to_plain(snap), ensure_ascii=False, sort_keys=True) + "\n")
+        append_snapshot(snap)
     return snap
+
+
+def append_snapshot(snapshot: MonitorSnapshot, path: Path | None = None) -> Path:
+    """Append one snapshot as JSONL, rotating the file once it exceeds the cap."""
+    target = Path(path) if path else SNAPSHOT_FILE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(_to_plain(snapshot), ensure_ascii=False, sort_keys=True) + "\n")
+    rotate_snapshots(target)
+    return target
+
+
+def rotate_snapshots(path: Path | None = None, *, max_bytes: int | None = None) -> Path | None:
+    """Rotate the snapshot file to ``<name>.1`` when it grew past the cap.
+
+    Returns the backup path when a rotation happened, otherwise None. A cap of
+    0 disables rotation entirely. Any OS error is swallowed: failing to rotate
+    must never lose the snapshot that was just written.
+    """
+    target = Path(path) if path else SNAPSHOT_FILE
+    cap = snapshot_max_bytes() if max_bytes is None else max(0, int(max_bytes))
+    if cap <= 0:
+        return None
+    try:
+        if target.stat().st_size <= cap:
+            return None
+        backup = rotated_snapshot_file(target)
+        target.replace(backup)  # atomic; drops the previous backup
+    except OSError:
+        return None
+    return backup
 
 
 def snapshot_json(*, pretty: bool = False, persist: bool = True) -> str:
@@ -1496,10 +1548,42 @@ def snapshot_json(*, pretty: bool = False, persist: bool = True) -> str:
     return json.dumps(data, indent=2 if pretty else None, ensure_ascii=False, sort_keys=True)
 
 
-def latest_snapshot(limit: int = 1) -> list[dict[str, Any]]:
-    if not SNAPSHOT_FILE.exists():
+def _tail_lines(path: Path, limit: int, *, chunk_size: int = 65536) -> list[str]:
+    """Last ``limit`` complete lines of a file, read backwards from the end.
+
+    The snapshot log is append-only and grows into the megabytes, while every
+    reader (dashboard chart, tray, CLI) only ever wants the newest handful of
+    entries — so never read the whole file to answer that.
+    """
+    if limit <= 0:
         return []
-    lines = SNAPSHOT_FILE.read_text(encoding="utf-8").splitlines()[-max(1, int(limit)):]
+    try:
+        with path.open("rb") as handle:
+            position = handle.seek(0, os.SEEK_END)
+            blocks: list[bytes] = []
+            newlines = 0
+            # Stop once the buffer holds limit+1 newlines: that guarantees the
+            # last `limit` lines are complete even if the first one is cut.
+            while position > 0 and newlines <= limit:
+                read_size = min(chunk_size, position)
+                position -= read_size
+                handle.seek(position)
+                block = handle.read(read_size)
+                newlines += block.count(b"\n")
+                blocks.append(block)
+    except OSError:
+        return []
+    data = b"".join(reversed(blocks))
+    return data.decode("utf-8", errors="replace").splitlines()[-limit:]
+
+
+def latest_snapshot(limit: int = 1) -> list[dict[str, Any]]:
+    """Newest persisted snapshots, oldest first. Corrupt lines are skipped."""
+    limit = max(1, int(limit))
+    lines = _tail_lines(SNAPSHOT_FILE, limit)
+    if len(lines) < limit:
+        # Just rotated: the tail of the run continues in the backup file.
+        lines = _tail_lines(rotated_snapshot_file(), limit - len(lines)) + lines
     out = []
     for line in lines:
         try:
