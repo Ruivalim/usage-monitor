@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import textwrap
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -57,13 +58,33 @@ def _write_settings(qwen_home: Path, api_key: str = "sk-sp-fake-key", base_url: 
     (qwen_home / "settings.json").write_text(json.dumps(settings))
 
 
-def _write_usage(qwen_home: Path, records: list[dict], month: str = "2026-08"):
+def _recent(hours: int = 1) -> str:
+    """Timestamp inside any sane usage window. Relative, so it never goes stale."""
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _stale(days: int = 60) -> str:
+    """Timestamp well outside the default 7-day window."""
+    return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _write_usage(qwen_home: Path, records: list[dict], month: str | None = None):
+    """Write records into the monthly file the adapter would look them up in.
+
+    The adapter only opens ``token-usage-<YYYY-MM>.jsonl`` files covering the
+    window, so each record has to land in the file matching its own timestamp.
+    """
     usage_dir = qwen_home / "usage"
     usage_dir.mkdir(exist_ok=True)
-    path = usage_dir / f"token-usage-{month}.jsonl"
-    with open(path, "w") as f:
-        for rec in records:
-            f.write(json.dumps(rec) + "\n")
+    by_month: dict[str, list[dict]] = {}
+    for rec in records:
+        key = month or str(rec.get("timestamp") or "")[:7]
+        by_month.setdefault(key, []).append(rec)
+    for key, items in by_month.items():
+        path = usage_dir / f"token-usage-{key}.jsonl"
+        with open(path, "w") as f:
+            for rec in items:
+                f.write(json.dumps(rec) + "\n")
 
 
 def _fake_models_response():
@@ -135,7 +156,7 @@ class TestUsageAggregation:
         _write_settings(qwen_home)
         _write_usage(qwen_home, [
             {
-                "timestamp": "2026-08-06T10:00:00Z",
+                "timestamp": _recent(hours=1),
                 "model": "qwen3.7-plus",
                 "inputTokens": 1000,
                 "outputTokens": 200,
@@ -144,7 +165,7 @@ class TestUsageAggregation:
                 "totalTokens": 1250,
             },
             {
-                "timestamp": "2026-08-06T11:00:00Z",
+                "timestamp": _recent(hours=2),
                 "model": "qwen3.7-plus",
                 "inputTokens": 2000,
                 "outputTokens": 300,
@@ -170,9 +191,11 @@ class TestUsageAggregation:
     def test_old_records_excluded(self, qwen_adapter, monkeypatch):
         adapter, qwen_home = qwen_adapter
         _write_settings(qwen_home)
-        _write_usage(qwen_home, [
+        # Forced into the current month's file so the adapter actually reads the
+        # line and has to reject it on its timestamp, not on the file name.
+        _write_usage(qwen_home, month=datetime.now(timezone.utc).strftime("%Y-%m"), records=[
             {
-                "timestamp": "2026-07-01T10:00:00Z",
+                "timestamp": _stale(days=10),
                 "model": "qwen3.7-plus",
                 "inputTokens": 999999,
                 "outputTokens": 0,
@@ -198,7 +221,7 @@ class TestCreditConversion:
         monkeypatch.setenv("USAGE_MONITOR_QWEN_USD_PER_CREDIT", "0.0024")
         _write_usage(qwen_home, [
             {
-                "timestamp": "2026-08-06T10:00:00Z",
+                "timestamp": _recent(hours=1),
                 "model": "qwen3.7-plus",
                 "inputTokens": 500000,
                 "outputTokens": 10000,
@@ -230,7 +253,7 @@ class TestCreditConversion:
         monkeypatch.setenv("USAGE_MONITOR_QWEN_CREDIT_LIMIT", "1")
         _write_usage(qwen_home, [
             {
-                "timestamp": "2026-08-06T10:00:00Z",
+                "timestamp": _recent(hours=1),
                 "model": "qwen3.8-max",
                 "inputTokens": 100000,
                 "outputTokens": 50000,
@@ -262,7 +285,7 @@ class TestCreditConversion:
         monkeypatch.setenv("USAGE_MONITOR_QWEN_CREDIT_LIMIT", "250")
         _write_usage(qwen_home, [
             {
-                "timestamp": "2026-08-06T10:00:00Z",
+                "timestamp": _recent(hours=1),
                 "model": "qwen3.7-plus",
                 "inputTokens": 450000,
                 "outputTokens": 0,
@@ -298,7 +321,7 @@ class TestCreditConversion:
         # 1M input tokens with qwen3.7-plus: $0.50
         _write_usage(qwen_home, [
             {
-                "timestamp": "2026-08-06T10:00:00Z",
+                "timestamp": _recent(hours=1),
                 "model": "qwen3.7-plus",
                 "inputTokens": 1000000,
                 "outputTokens": 0,
@@ -315,7 +338,7 @@ class TestCreditConversion:
         # 1M input tokens with qwen3.8-max: $2.00
         _write_usage(qwen_home, [
             {
-                "timestamp": "2026-08-06T10:00:00Z",
+                "timestamp": _recent(hours=1),
                 "model": "qwen3.8-max",
                 "inputTokens": 1000000,
                 "outputTokens": 0,
@@ -352,7 +375,7 @@ class TestEnvOverrides:
         monkeypatch.setenv("USAGE_MONITOR_QWEN_WINDOW_DAYS", "3")
         _write_usage(qwen_home, [
             {
-                "timestamp": "2026-08-06T10:00:00Z",
+                "timestamp": _recent(hours=1),
                 "model": "qwen3.7-plus",
                 "inputTokens": 1000,
                 "outputTokens": 100,
