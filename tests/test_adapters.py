@@ -29,18 +29,20 @@ class _FakeHttp:
     """Controllable fake for core._http_get_json.
 
     Map URL-suffix -> (status_code, body); unmatched URLs return (404, {}).
-    `.calls` records every requested URL.
+    `.calls` records every requested URL, `.tokens` every bearer used.
     """
 
     def __init__(self):
         self.routes: dict[str, tuple[int, object]] = {}
         self.calls: list[str] = []
+        self.tokens: list[object] = []
 
     def __setitem__(self, suffix, resp):
         self.routes[suffix] = resp
 
     def __call__(self, url, token=None, *, timeout=12.0, headers=None):
         self.calls.append(url)
+        self.tokens.append(token)
         for suffix, resp in self.routes.items():
             if url.endswith(suffix):
                 return resp
@@ -233,6 +235,128 @@ def test_supergrok_exhausted(fake_http, tmp_path, monkeypatch):
     })
     ps = core._adapter_supergrok({"id": "supergrok", "type": "supergrok"})
     assert ps.status == "quota_exhausted"
+
+
+class _FakeTokenEndpoint:
+    """Stand-in for ``httpx`` covering only the OIDC refresh POST."""
+
+    def __init__(self, status=200, payload=None):
+        self.status = status
+        self.payload = payload or {}
+        self.calls = []
+
+    def Client(self, *args, **kwargs):  # noqa: N802 — mirrors httpx.Client
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def post(self, url, data=None, headers=None):
+        self.calls.append((url, dict(data or {})))
+        outer = self
+
+        class _Resp:
+            status_code = outer.status
+
+            def json(self):
+                return outer.payload
+
+        return _Resp()
+
+
+def test_supergrok_refreshes_expired_session(fake_http, tmp_path, monkeypatch):
+    auth_path = tmp_path / "auth.json"
+    auth_path.write_text(json.dumps({
+        "https://auth.x.ai::client-1": {
+            "key": "stale-token",
+            "user_id": "user-123",
+            "expires_at": "2020-01-01T00:00:00Z",
+            "refresh_token": "rt-old",
+            "oidc_issuer": "https://auth.x.ai",
+            "oidc_client_id": "client-1",
+            "email": "someone@example.com",
+        }
+    }), encoding="utf-8")
+    monkeypatch.setenv("USAGE_MONITOR_GROK_AUTH_FILE", str(auth_path))
+    token_endpoint = _FakeTokenEndpoint(payload={
+        "access_token": "fresh-token",
+        "refresh_token": "rt-new",
+        "expires_in": 21600,
+    })
+    monkeypatch.setattr(core, "httpx", token_endpoint)
+    fake_http["/billing?format=credits"] = (200, {
+        "config": {"creditUsagePercent": 10.0, "currentPeriod": {"type": "USAGE_PERIOD_TYPE_WEEKLY"}}
+    })
+
+    ps = core._adapter_supergrok({"id": "supergrok", "type": "supergrok"})
+
+    assert ps.status == "ok"
+    assert fake_http.tokens[-1] == "fresh-token"
+    url, form = token_endpoint.calls[0]
+    assert url == "https://auth.x.ai/oauth2/token"
+    assert form == {"grant_type": "refresh_token", "refresh_token": "rt-old", "client_id": "client-1"}
+    # Rotated tokens must land back on disk or the Grok CLI loses its session.
+    saved = json.loads(auth_path.read_text(encoding="utf-8"))["https://auth.x.ai::client-1"]
+    assert saved["key"] == "fresh-token"
+    assert saved["refresh_token"] == "rt-new"
+    assert saved["expires_at"] > "2026"
+    assert saved["email"] == "someone@example.com"
+
+
+def test_supergrok_retries_once_after_401(fake_http, tmp_path, monkeypatch):
+    auth_path = tmp_path / "auth.json"
+    auth_path.write_text(json.dumps({
+        "https://auth.x.ai::client-1": {
+            "key": "revoked-token",
+            "user_id": "user-123",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "refresh_token": "rt-old",
+            "oidc_client_id": "client-1",
+        }
+    }), encoding="utf-8")
+    monkeypatch.setenv("USAGE_MONITOR_GROK_AUTH_FILE", str(auth_path))
+    monkeypatch.setattr(core, "httpx", _FakeTokenEndpoint(payload={
+        "access_token": "fresh-token", "expires_in": 21600,
+    }))
+    ok_body = {"config": {"creditUsagePercent": 5.0, "currentPeriod": {"type": "USAGE_PERIOD_TYPE_WEEKLY"}}}
+
+    def responder(url, token=None, *, timeout=12.0, headers=None):
+        fake_http.calls.append(url)
+        fake_http.tokens.append(token)
+        return (200, ok_body) if token == "fresh-token" else (401, {"error": "expired"})
+
+    monkeypatch.setattr(core, "_http_get_json", responder)
+
+    ps = core._adapter_supergrok({"id": "supergrok", "type": "supergrok"})
+
+    assert ps.status == "ok"
+    assert fake_http.tokens == ["revoked-token", "fresh-token"]
+
+
+def test_supergrok_refresh_rejected(fake_http, tmp_path, monkeypatch):
+    auth_path = tmp_path / "auth.json"
+    auth_path.write_text(json.dumps({
+        "https://auth.x.ai::client-1": {
+            "key": "stale-token",
+            "user_id": "user-123",
+            "expires_at": "2020-01-01T00:00:00Z",
+            "refresh_token": "rt-dead",
+            "oidc_client_id": "client-1",
+        }
+    }), encoding="utf-8")
+    monkeypatch.setenv("USAGE_MONITOR_GROK_AUTH_FILE", str(auth_path))
+    monkeypatch.setattr(core, "httpx", _FakeTokenEndpoint(status=400, payload={"error": "invalid_grant"}))
+
+    ps = core._adapter_supergrok({"id": "supergrok", "type": "supergrok"})
+
+    assert ps.status == "unavailable"
+    assert "grok login" in (ps.message or "")
+    assert not fake_http.calls
+    # A failed refresh must leave the stored session untouched.
+    assert json.loads(auth_path.read_text(encoding="utf-8"))["https://auth.x.ai::client-1"]["key"] == "stale-token"
 
 
 def test_supergrok_missing_auth(tmp_path, monkeypatch):

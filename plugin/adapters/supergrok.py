@@ -19,8 +19,9 @@ product breakdown and Extra Usage Credits balance.
 This is **not** the developer Management API (prepaid API credits). That path
 is the built-in ``xai`` provider type.
 
-Requires: a logged-in Grok CLI session (``grok login``). Token refresh is not
-implemented here — when the session expires, re-run ``grok login``.
+Requires: a logged-in Grok CLI session (``grok login``). The CLI only refreshes
+its access token at startup, so this adapter runs the same OIDC refresh when the
+stored token is expiring and writes the rotated tokens back to ``auth.json``.
 """
 
 from __future__ import annotations
@@ -28,8 +29,11 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -45,8 +49,96 @@ except ImportError:
 
 DEFAULT_AUTH = Path.home() / ".grok" / "auth.json"
 DEFAULT_BASE = "https://cli-chat-proxy.grok.com/v1"
+DEFAULT_TOKEN_ENDPOINT = "https://auth.x.ai/oauth2/token"
+REFRESH_SKEW = 120.0
 PROVIDER_ID = "supergrok"
 LABEL = "SuperGrok"
+
+
+def _expiry(entry):
+    raw = entry.get("expires_at") or entry.get("expiresAt")
+    if not raw:
+        return None
+    try:
+        exp = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    return exp.timestamp()
+
+
+def _refresh(auth_path, key, entry):
+    """Public-client OIDC refresh, persisted back so the Grok CLI keeps working.
+
+    Returns ``(entry, error)``.
+    """
+    refresh_token = str(entry.get("refresh_token") or entry.get("refreshToken") or "").strip()
+    client_id = str(entry.get("oidc_client_id") or entry.get("client_id") or "").strip()
+    if not client_id and "::" in key:
+        client_id = key.rsplit("::", 1)[1].strip()
+    if not refresh_token or not client_id:
+        return None, "Grok session expired and cannot be refreshed — run `grok login`"
+    issuer = str(entry.get("oidc_issuer") or "").strip().rstrip("/")
+    endpoint = os.environ.get("USAGE_MONITOR_GROK_TOKEN_ENDPOINT") or (
+        f"{issuer}/oauth2/token" if issuer else DEFAULT_TOKEN_ENDPOINT
+    )
+    payload = urllib.parse.urlencode({
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+    }).encode()
+    req = urllib.request.Request(
+        endpoint,
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            body = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 401, 403):
+            return None, "Grok refresh token rejected — run `grok login`"
+        return None, f"Grok token refresh HTTP {e.code}"
+    except Exception as exc:
+        return None, f"Grok token refresh failed: {exc}"
+
+    access = str((body or {}).get("access_token") or "").strip()
+    if not access:
+        return None, "Grok token refresh returned no access_token"
+
+    updated = dict(entry)
+    updated["key"] = access
+    rotated = str((body or {}).get("refresh_token") or "").strip()
+    if rotated:
+        updated["refresh_token"] = rotated
+    try:
+        expires_in = float((body or {}).get("expires_in") or 0)
+    except (TypeError, ValueError):
+        expires_in = 0
+    if expires_in:
+        stamp = datetime.fromtimestamp(time.time() + expires_in, timezone.utc)
+        updated["expires_at"] = stamp.replace(tzinfo=None).isoformat() + "Z"
+    _persist(auth_path, key, updated)
+    return updated, None
+
+
+def _persist(auth_path, key, entry):
+    """Atomically store the refreshed entry, yielding to a newer CLI session."""
+    try:
+        data = json.loads(auth_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return
+        current = data.get(key)
+        if isinstance(current, dict) and (_expiry(current) or 0.0) > (_expiry(entry) or 0.0):
+            return
+        data[key] = entry
+        tmp = auth_path.with_name(auth_path.name + ".usage-monitor.tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, auth_path)
+    except Exception:
+        pass
 
 
 def check():
@@ -70,14 +162,23 @@ def check():
     except Exception as exc:
         return result("unavailable", f"Failed to read Grok auth: {exc}")
 
-    entry = None
+    entry = entry_key = None
     if isinstance(data, dict):
-        for value in data.values():
+        for candidate_key, value in data.items():
             if isinstance(value, dict) and (value.get("key") or value.get("access_token")):
-                entry = value
+                entry, entry_key = value, str(candidate_key)
                 break
     if not entry:
         return result("unavailable", "No session in Grok auth.json — run `grok login`")
+
+    # The CLI refreshes only at startup, so the stored token is routinely
+    # expired here while the login itself is still good.
+    exp = _expiry(entry)
+    if exp is not None and exp <= time.time() + REFRESH_SKEW:
+        refreshed, err = _refresh(auth_path, entry_key, entry)
+        if refreshed is None:
+            return result("unavailable", err or "Grok session expired — run `grok login`")
+        entry = refreshed
 
     token = str(entry.get("key") or entry.get("access_token") or "").strip()
     user_id = str(entry.get("user_id") or entry.get("userId") or entry.get("principal_id") or "").strip()
@@ -99,10 +200,23 @@ def check():
         "User-Agent": "xai-grok-cli",
     }
 
-    try:
+    def fetch():
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=12) as resp:
-            body = json.loads(resp.read().decode())
+            return json.loads(resp.read().decode())
+
+    try:
+        try:
+            body = fetch()
+        except urllib.error.HTTPError as e:
+            # Token may have been revoked or rotated under us; refresh once.
+            if e.code not in (401, 403):
+                raise
+            refreshed, _ = _refresh(auth_path, entry_key, entry)
+            if not refreshed:
+                raise
+            headers["Authorization"] = f"Bearer {refreshed['key']}"
+            body = fetch()
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
             return result("error", "Grok session rejected — run `grok login`")

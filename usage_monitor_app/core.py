@@ -684,7 +684,121 @@ def _grok_auth_paths(conf: dict[str, Any] | None = None) -> list[Path]:
     return out
 
 
-def _load_grok_cli_auth(conf: dict[str, Any] | None = None) -> tuple[Optional[str], Optional[str], str, Optional[str]]:
+_GROK_TOKEN_ENDPOINT = "https://auth.x.ai/oauth2/token"
+# Refresh a little before the stamped expiry so a slow poll never races it.
+_GROK_REFRESH_SKEW = 120.0
+
+
+def _grok_entry_expiry(entry: dict[str, Any]) -> Optional[float]:
+    raw = entry.get("expires_at") or entry.get("expiresAt")
+    if not raw:
+        return None
+    try:
+        exp = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    return exp.timestamp()
+
+
+def _grok_refresh_session(
+    path: Path,
+    key: str,
+    entry: dict[str, Any],
+    conf: dict[str, Any] | None = None,
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    """Trade the stored ``refresh_token`` for a fresh access token.
+
+    The Grok CLI only refreshes when it starts, so a monitor that just reads
+    ``auth.json`` sees the session go stale every few hours even though the
+    login is still valid. Mirrors the CLI's public-client OIDC refresh and
+    writes the rotated tokens back so both sides keep working.
+
+    Returns ``(entry, error)`` where ``entry`` is the refreshed session.
+    """
+    conf = conf or {}
+    refresh_token = str(entry.get("refresh_token") or entry.get("refreshToken") or "").strip()
+    if not refresh_token:
+        return None, "Grok session has no refresh token — run `grok login`"
+    client_id = str(entry.get("oidc_client_id") or entry.get("client_id") or "").strip()
+    if not client_id and "::" in key:
+        client_id = key.rsplit("::", 1)[1].strip()
+    if not client_id:
+        return None, "Grok session has no OIDC client id — run `grok login`"
+    issuer = str(entry.get("oidc_issuer") or "").strip().rstrip("/")
+    endpoint = str(
+        conf.get("token_endpoint")
+        or os.environ.get("USAGE_MONITOR_GROK_TOKEN_ENDPOINT")
+        or (f"{issuer}/oauth2/token" if issuer else _GROK_TOKEN_ENDPOINT)
+    )
+    if httpx is None:
+        return None, "httpx is not available in this Python environment"
+
+    try:
+        with httpx.Client(timeout=float(conf.get("timeout", 12.0))) as client:
+            resp = client.post(
+                endpoint,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": client_id,
+                },
+                headers={"Accept": "application/json"},
+            )
+        if resp.status_code >= 400:
+            if resp.status_code in (400, 401, 403):
+                return None, "Grok refresh token rejected — run `grok login`"
+            return None, f"Grok token refresh HTTP {resp.status_code}"
+        payload = resp.json()
+    except Exception as exc:
+        return None, f"Grok token refresh failed: {exc}"
+
+    access = str((payload or {}).get("access_token") or "").strip()
+    if not access:
+        return None, "Grok token refresh returned no access_token"
+
+    updated = dict(entry)
+    updated["key"] = access
+    rotated = str((payload or {}).get("refresh_token") or "").strip()
+    if rotated:
+        updated["refresh_token"] = rotated
+    expires_in = _safe_float((payload or {}).get("expires_in"))
+    if expires_in:
+        stamp = datetime.fromtimestamp(time.time() + expires_in, timezone.utc)
+        updated["expires_at"] = stamp.replace(tzinfo=None).isoformat() + "Z"
+
+    _grok_persist_session(path, key, updated)
+    return updated, None
+
+
+def _grok_persist_session(path: Path, key: str, entry: dict[str, Any]) -> None:
+    """Write a refreshed session back to ``auth.json`` without clobbering it.
+
+    Re-reads first: if the Grok CLI refreshed in the meantime its entry wins,
+    so we never overwrite a newer session with ours.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return
+        current = data.get(key)
+        if isinstance(current, dict):
+            mine = _grok_entry_expiry(entry) or 0.0
+            theirs = _grok_entry_expiry(current) or 0.0
+            if theirs > mine:
+                return
+        data[key] = entry
+        tmp = path.with_name(path.name + ".usage-monitor.tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except Exception:
+        # Refresh still works for this poll even when we cannot persist it.
+        pass
+
+
+def _load_grok_cli_auth(conf: dict[str, Any] | None = None, *, force_refresh: bool = False) -> tuple[Optional[str], Optional[str], str, Optional[str]]:
     """Load Grok Build / SuperGrok OAuth session from ``~/.grok/auth.json``.
 
     Returns ``(access_token, user_id, source, error_message)``.
@@ -712,44 +826,34 @@ def _load_grok_cli_auth(conf: dict[str, Any] | None = None) -> tuple[Optional[st
             last_err = f"Empty or invalid Grok auth file: {path}"
             continue
         # Prefer the newest non-expired OIDC entry.
-        candidates: list[dict[str, Any]] = []
-        for entry in data.values():
+        candidates: list[tuple[str, dict[str, Any]]] = []
+        for entry_key, entry in data.items():
             if isinstance(entry, dict) and (entry.get("key") or entry.get("access_token")):
-                candidates.append(entry)
+                candidates.append((str(entry_key), entry))
         if not candidates:
             last_err = f"No session token in {path} — run `grok login`"
             continue
-        def _exp_key(e: dict[str, Any]) -> float:
-            raw = e.get("expires_at") or e.get("expiresAt") or ""
-            try:
-                return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
-            except Exception:
-                return 0.0
-        candidates.sort(key=_exp_key, reverse=True)
-        entry = candidates[0]
-        tok = str(entry.get("key") or entry.get("access_token") or "").strip()
+        candidates.sort(key=lambda item: _grok_entry_expiry(item[1]) or 0.0, reverse=True)
+        entry_key, entry = candidates[0]
         uid = str(entry.get("user_id") or entry.get("userId") or entry.get("principal_id") or "").strip()
-        if not tok:
-            last_err = f"Session in {path} has no access token — run `grok login`"
-            continue
         if not uid:
             last_err = f"Session in {path} has no user_id — run `grok login`"
             continue
-        # Soft expiry check; still try the request if slightly past (clock skew).
-        exp_raw = entry.get("expires_at") or entry.get("expiresAt")
-        if exp_raw:
-            try:
-                exp = datetime.fromisoformat(str(exp_raw).replace("Z", "+00:00"))
-                if exp.tzinfo is None:
-                    exp = exp.replace(tzinfo=timezone.utc)
-                if exp.timestamp() < time.time() - 30:
-                    last_err = f"Grok session expired ({exp_raw}) — run `grok login`"
-                    # Keep trying newer entries; if this was the only one, surface the error.
-                    if len(candidates) == 1:
-                        return None, None, f"grok-auth:{path}", last_err
-                    continue
-            except Exception:
-                pass
+        # The Grok CLI refreshes only at startup, so the stored access token is
+        # routinely expired here even though the login is fine. Refresh it.
+        exp = _grok_entry_expiry(entry)
+        if force_refresh or (exp is not None and exp <= time.time() + _GROK_REFRESH_SKEW):
+            refreshed, err = _grok_refresh_session(path, entry_key, entry, conf)
+            if refreshed is None:
+                last_err = err or f"Grok session expired — run `grok login`"
+                if len(candidates) == 1:
+                    return None, None, f"grok-auth:{path}", last_err
+                continue
+            entry = refreshed
+        tok = str(entry.get("key") or entry.get("access_token") or "").strip()
+        if not tok:
+            last_err = f"Session in {path} has no access token — run `grok login`"
+            continue
         return tok, uid, f"grok-auth:{path}", None
     return None, None, "grok-auth", last_err or "No Grok OAuth session (~/.grok/auth.json) — run `grok login`"
 
@@ -786,6 +890,13 @@ def _adapter_supergrok(conf: dict[str, Any]) -> ProviderStatus:
     }
     try:
         code, body = _http_get_json(url, token, timeout=timeout, headers=headers)
+        if code in (401, 403):
+            # Token may have been revoked or rotated under us; refresh once.
+            new_token, new_uid, new_source, _ = _load_grok_cli_auth(conf, force_refresh=True)
+            if new_token and new_token != token:
+                token, source = new_token, new_source
+                headers["x-userid"] = new_uid or user_id
+                code, body = _http_get_json(url, token, timeout=timeout, headers=headers)
         status, msg = _status_from_http(code, body)
         ps = ProviderStatus(conf["id"], label, status=status, source=source, message=msg)
         if not (200 <= code < 300) or not isinstance(body, dict):
