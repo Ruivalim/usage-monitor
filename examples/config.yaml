@@ -3,7 +3,7 @@
 #   USAGE_MONITOR_AUTH_PASSWORD or USAGE_MONITOR_AUTH_PASSWORD_HASH
 
 dashboard:
-  # en | pt
+  # en | pt-BR  (`pt`, `pt_BR` and `pt-BR.UTF-8` are accepted spellings)
   language: en
 
   # light | dark

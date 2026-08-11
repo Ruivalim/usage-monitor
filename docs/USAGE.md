@@ -56,7 +56,7 @@ usagemon menubar --interval 900
 usagemon menubar --no-persist         # refresh without appending snapshots
 ```
 
-The app shows the overall status icon in the menu bar (🟢 ok / 🟡 warning / 🔴 error / ⚪ unknown), one menu line per provider, and `Refresh Now`, `Open Dashboard`, `Show auth`, startup, and `Quit` actions. Language is controlled by `dashboard.language` (`en`/`pt`) or `--language`.
+The app shows the overall status icon in the menu bar (🟢 ok / 🟡 warning / 🔴 error / ⚪ unknown), one menu line per provider, and `Refresh Now`, `Open Dashboard`, `Show inactive`, `Start at Login`, and `Quit` actions. Language is controlled by `dashboard.language` (`en`/`pt-BR`) or `--language`.
 
 It is a view over `core.collect_status` only: it does not start or manage the FastAPI backend. `Open Dashboard` opens the configured dashboard URL in the default browser (`--dashboard-url` or `USAGE_MONITOR_DASHBOARD_URL`, default `http://127.0.0.1:9097`) — start the backend separately with `usagemon serve` if you want the dashboard live.
 
@@ -228,3 +228,9 @@ Override with:
 export USAGE_MONITOR_HOME=/path/to/state
 export USAGE_MONITOR_SNAPSHOT_FILE=/path/to/snapshots.jsonl
 ```
+
+The file is append-only, so it is rotated to `snapshots.jsonl.1` once it grows
+past 8 MiB — disk use stays bounded at twice that, and readers fall back to the
+backup so history charts survive a rotation. Set
+`USAGE_MONITOR_SNAPSHOT_MAX_BYTES` to change the cap, or `0` to keep one
+ever-growing file.

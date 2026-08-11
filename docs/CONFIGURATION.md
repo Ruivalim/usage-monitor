@@ -101,8 +101,7 @@ Do not commit real tokens.
 
 ```yaml
 dashboard:
-  show_auth: false
-  language: en       # en | pt
+  language: en       # en | pt-BR (`pt`, `pt_BR` and `pt-BR.UTF-8` all mean pt-BR)
   theme: light
 intervals:
   refresh_seconds: 900   # backend scheduler; 0 disables
@@ -348,6 +347,7 @@ security add-generic-password -U \
 | `USAGE_MONITOR_PRICES_FILE` | `$USAGE_MONITOR_HOME/prices.yaml` | External price table |
 | `USAGE_MONITOR_ADAPTER_DIR` | `$USAGE_MONITOR_HOME/adapters` | External Python adapters |
 | `USAGE_MONITOR_SNAPSHOT_FILE` | `$USAGE_MONITOR_HOME/snapshots.jsonl` | Snapshot JSONL file |
+| `USAGE_MONITOR_SNAPSHOT_MAX_BYTES` | `8388608` (8 MiB) | Rotate the snapshot file to `<name>.1` past this size; `0` disables rotation |
 | `USAGE_MONITOR_OVERRIDES_FILE` | `$USAGE_MONITOR_HOME/overrides.json` | Per-provider overrides (relevance mute) |
 | `USAGE_MONITOR_REFRESH_INTERVAL` | `config.yaml intervals.refresh_seconds` | Standalone scheduler interval in seconds |
 | `USAGE_MONITOR_ALERT_STATE_FILE` | `$USAGE_MONITOR_HOME/alert_state.json` | Alert dedup/snooze state file |
@@ -360,7 +360,7 @@ security add-generic-password -U \
 | `USAGE_MONITOR_AUTH_PASSWORD` | unset | Basic Auth plaintext from env |
 | `USAGE_MONITOR_AUTH_PASSWORD_HASH` | unset | Basic Auth PBKDF2 hash from env |
 | `USAGE_MONITOR_LOCAL_TOKEN_FILE` | `$USAGE_MONITOR_HOME/local-token` | Loopback refresh token (0600, refresh routes only) |
-| `USAGE_MONITOR_LANGUAGE` / `USAGE_MONITOR_LANG` | config value | Dashboard/tray language (`en`/`pt`) |
+| `USAGE_MONITOR_LANGUAGE` / `USAGE_MONITOR_LANG` | config value | Dashboard/tray language (`en`/`pt-BR`); overrides `config.yaml` |
 | `USAGE_MONITOR_AGY_*` | see Antigravity section | Also settable per-entry in `providers.yaml` (`timeout`, `reuse`, `bin`, …) |
 
 ## LaunchAgent generation (macOS autostart)

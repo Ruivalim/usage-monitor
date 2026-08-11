@@ -62,7 +62,7 @@ usage-monitor restart                    # reload the running server after a con
 - **Dashboard** (`usage-monitor serve` / `make server`): light-theme provider cards,
   history charts, per-provider mute, a startup toggle, optional Basic Auth login,
   and English/Portuguese UI strings. `config.yaml` controls the default refresh
-  interval, language, auth, and whether auth providers are shown by default.
+  interval, language, and auth.
 - **Menu bar app** (`make tray`): overall icon (🟢/🟡/🔴/⚪) plus one line per
   provider. It reads the newest persisted snapshot instead of collecting on the UI
   thread, and `Refresh Now` delegates to the backend. Requires the optional
@@ -76,7 +76,8 @@ usage-monitor restart                    # reload the running server after a con
   wrapper in `~/.local/bin` that pins this checkout's venv, so it works from any
   shell without activating anything — that is the one to use day to day, and the
   name every example below assumes. `make uninstall-cli` removes it.
-- **Snapshots**: appended to `~/.config/usagemon/snapshots.jsonl`.
+- **Snapshots**: appended to `~/.config/usagemon/snapshots.jsonl`, rotated to
+  `snapshots.jsonl.1` past 8 MiB (`USAGE_MONITOR_SNAPSHOT_MAX_BYTES`).
 
 Details and every flag: [docs/USAGE.md](docs/USAGE.md).
 
@@ -150,9 +151,8 @@ providers:
 ```yaml
 # ~/.config/usagemon/config.yaml
 dashboard:
-  language: en        # en | pt
+  language: en        # en | pt-BR
   theme: light
-  show_auth: false
 intervals:
   refresh_seconds: 900
   menubar_seconds: 300
