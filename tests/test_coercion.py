@@ -2,6 +2,8 @@
 """Coercion of adapter return values into ProviderStatus / UsageWindow."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from usage_monitor_app.core import Money, ProviderStatus, UsageWindow, _coerce_provider, _coerce_window
@@ -10,6 +12,12 @@ from usage_monitor_app.core import Money, ProviderStatus, UsageWindow, _coerce_p
 def test_coerce_window_passthrough():
     w = UsageWindow(label="daily", used_percent=10.0)
     assert _coerce_window(w) is w
+
+
+def test_reset_label_uses_minutes_through_90_minutes():
+    now = datetime.now(timezone.utc)
+    assert UsageWindow(label="weekly", reset_at=(now + timedelta(minutes=90)).isoformat()).reset_label() == "90m"
+    assert UsageWindow(label="weekly", reset_at=(now + timedelta(minutes=91)).isoformat()).reset_label() == "1h"
 
 
 def test_coerce_window_from_dict():

@@ -27,7 +27,7 @@ import urllib.request
 import webbrowser
 from typing import Any, Callable, Optional
 
-from .core import MonitorSnapshot, ProviderStatus, SNAPSHOT_FILE, collect_status, latest_snapshot
+from .core import MonitorSnapshot, ProviderStatus, SNAPSHOT_FILE, UsageWindow, collect_status, latest_snapshot
 from .config import load_app_config
 from .i18n import SUPPORTED_LANGUAGES, normalize_language, translator
 
@@ -99,6 +99,10 @@ def provider_line(p: ProviderStatus, *, language: str = "en") -> str:
 
 def _reset_label_from_dict(w: dict, *, language: str = "en") -> str | None:
     """Human-readable reset countdown from a serialized window dict."""
+    if w.get("reset_at"):
+        label = UsageWindow(label="", reset_at=str(w["reset_at"])).reset_label()
+        if label:
+            return _t(language, "tray.reset_now") if label == "now" else label
     days = w.get("days_until_reset")
     hours = w.get("hours_until_reset")
     if days is None:

@@ -385,8 +385,15 @@ function money(m, tag) {
          `<span class="cur">${esc(m.currency || '')}</span><span class="tag">${tag}</span></div>`;
 }
 
-// Mirrors UsageWindow.reset_label(): the snapshot carries days/hours, not the label.
+// Mirrors UsageWindow.reset_label(): show precise minutes for the final 90 minutes.
 function resetLabel(w) {
+  if (w.reset_at) {
+    const resetMs = Date.parse(w.reset_at);
+    if (!Number.isNaN(resetMs)) {
+      const minutes = Math.max(0, Math.ceil((resetMs - Date.now()) / 60000));
+      if (minutes <= 90) return minutes ? minutes + 'm' : t('dashboard.reset_now');
+    }
+  }
   if (w.days_until_reset > 0) return w.days_until_reset + 'd';
   if (w.hours_until_reset > 0) return w.hours_until_reset + 'h';
   if (w.reset_at) return t('dashboard.reset_now');

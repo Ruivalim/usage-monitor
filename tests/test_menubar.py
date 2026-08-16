@@ -7,6 +7,7 @@ are injected callables. No real GUI, no network, no launchctl.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import sys
 import threading
 import urllib.error
@@ -173,6 +174,11 @@ def test_provider_line_formatting():
 def test_provider_line_muted_marker():
     p = ProviderStatus(id="n", label="Nous", status="quota_exhausted", relevant=False)
     assert menubar.provider_line(p).endswith("(muted)")
+
+
+def test_serialized_window_uses_minutes_in_final_90_minutes():
+    reset_at = (datetime.now(timezone.utc) + timedelta(minutes=89)).isoformat()
+    assert menubar._reset_label_from_dict({"reset_at": reset_at}) == "89m"
 
 
 def test_provider_line_from_dict():

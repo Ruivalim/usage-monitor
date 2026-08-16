@@ -193,11 +193,19 @@ class UsageWindow:
                 self.hours_until_reset = None
 
     def reset_label(self) -> Optional[str]:
-        """Human-readable reset countdown: '3d', '2h', 'now', or None."""
+        """Human-readable reset countdown, with minutes for the final 90 minutes."""
         if self.days_until_reset is None:
             return None
         if self.days_until_reset > 0:
             return f"{self.days_until_reset}d"
+        if self.reset_at:
+            try:
+                dt = datetime.fromisoformat(self.reset_at.replace("Z", "+00:00"))
+                minutes = max(0, int((dt - datetime.now(timezone.utc)).total_seconds() + 59) // 60)
+                if minutes <= 90:
+                    return f"{minutes}m" if minutes else "now"
+            except (ValueError, TypeError):
+                pass
         if self.hours_until_reset and self.hours_until_reset > 0:
             return f"{self.hours_until_reset}h"
         return "now"
