@@ -154,6 +154,8 @@ in-process, which is correct but does the backend's work twice.
 | `openai` | OpenAI org costs via Admin key (`/v1/organization/costs`) |
 | `supergrok` / `grok` / `grok-subscription` | SuperGrok weekly usage pool via Grok CLI session (`~/.grok/auth.json`) |
 | `xai` | xAI Management API prepaid balance (developer API credits) |
+| `opencode-go` / `opencode` | OpenCode Go subscription usage windows (`opencode.ai/zen/go/v1/usage`) |
+| `charm-hyper` / `hyper` | Charm Hyper credits balance (`hyper.charm.land/v1/credits`) |
 | `placeholder` | Lists a provider without a stable usage endpoint yet |
 | `hermes-account-usage` | Optional Hermes `agent.account_usage` bridge |
 | `anthropic-subscription` | Optional Hermes Anthropic account-usage bridge |

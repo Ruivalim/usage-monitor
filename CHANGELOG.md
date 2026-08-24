@@ -8,6 +8,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- OpenCode Go subscription usage windows (`opencode-go` / `opencode`) via `opencode.ai/zen/go/v1/usage`.
+- Charm Hyper credits balance (`charm-hyper` / `hyper`) via `hyper.charm.land/v1/credits`.
+
+### Added
+
 - SuperGrok weekly usage pool (`supergrok` / `grok`) via Grok CLI session (`~/.grok/auth.json`).
 - xAI Management API prepaid credits (`xai`).
 - OpenAI org costs (`openai`) via Admin key; honest error for secret-key `credit_grants`.

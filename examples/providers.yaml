@@ -102,6 +102,26 @@ providers:
       service: api-usage-monitor/xai
       account: default
 
+  # OpenCode Go subscription usage windows (zen API key from opencode.ai)
+  - id: opencode-go
+    name: OpenCode Go
+    type: opencode-go      # aliases: opencode
+    enabled: false
+    credential:
+      source: keychain
+      service: api-usage-monitor/opencode
+      account: default
+
+  # Charm Hyper credits balance (sk-hyper-... console key)
+  - id: charm-hyper
+    name: Charm Hyper
+    type: charm-hyper      # aliases: hyper
+    enabled: false
+    credential:
+      source: keychain
+      service: api-usage-monitor/hyper
+      account: default
+
   - id: placeholder-demo
     name: Placeholder demo
     type: placeholder

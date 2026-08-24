@@ -998,6 +998,102 @@ def _adapter_supergrok(conf: dict[str, Any]) -> ProviderStatus:
         return ProviderStatus(conf["id"], label, status="unavailable", source=source, message=str(exc)[:240])
 
 
+def _adapter_opencode_go(conf: dict[str, Any]) -> ProviderStatus:
+    """OpenCode Go subscription usage windows.
+
+    ``GET https://opencode.ai/zen/go/v1/usage`` with the OpenCode Zen API key
+    returns rolling / weekly / monthly usage windows as percents with reset
+    timestamps. Pay-as-you-go wallet balance has no API yet (feature request
+    upstream), so only the subscription windows are reported.
+    """
+    label = conf.get("label", conf["id"])
+    token, base_url, source = _credential(conf)
+    if not token:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message="No OpenCode credential")
+    base = str(
+        base_url
+        or os.environ.get("USAGE_MONITOR_OPENCODE_BASE_URL")
+        or "https://opencode.ai/zen/go/v1"
+    ).rstrip("/")
+    try:
+        code, body = _http_get_json(f"{base}/usage", token, timeout=float(conf.get("timeout", 12.0)))
+        status, msg = _status_from_http(code, body)
+        ps = ProviderStatus(conf["id"], label, status=status, source=source, message=msg)
+        if not (200 <= code < 300) or not isinstance(body, dict):
+            return ps
+        usage = body.get("usage") if isinstance(body.get("usage"), dict) else body
+        labels = {"rolling": "Rolling window", "weekly": "Current week", "monthly": "Current month"}
+        warn_pct = float(conf.get("warn_percent") or 85)
+        if isinstance(usage, dict):
+            for key in ("rolling", "weekly", "monthly"):
+                window = usage.get(key)
+                if not isinstance(window, dict):
+                    continue
+                wstatus = str(window.get("status") or "").strip()
+                if wstatus and wstatus.lower() != "ok":
+                    ps.details.append(f"{key}: {wstatus}")
+                pct = _safe_float(window.get("percent"))
+                if pct is None:
+                    continue
+                pct = max(0.0, min(100.0, pct))
+                ps.windows.append(UsageWindow(
+                    label=str(conf.get(f"{key}_label") or labels.get(key, key)),
+                    used_percent=round(pct, 2),
+                    remaining_percent=round(max(0.0, 100.0 - pct), 2),
+                    reset_at=window.get("resetsAt") or window.get("reset_at"),
+                ))
+                if pct >= 100:
+                    ps.status = "quota_exhausted"
+                    ps.message = ps.message or "OpenCode usage window exhausted"
+                elif pct >= warn_pct and ps.status == "ok":
+                    ps.status = "warning"
+                    ps.message = ps.message or "OpenCode usage window nearly exhausted"
+        if not ps.windows:
+            ps.status = "unknown"
+            ps.message = ps.message or "Usage response contained no windows"
+            ps.details.append("Unrecognized OpenCode usage shape")
+        return ps
+    except Exception as exc:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message=str(exc)[:240])
+
+
+def _adapter_charm_hyper(conf: dict[str, Any]) -> ProviderStatus:
+    """Charm Hyper credits balance.
+
+    ``GET https://hyper.charm.land/v1/credits`` with the ``sk-hyper-...``
+    console key returns the remaining hypercredits. Hyper exposes no
+    usage/limits endpoint, so only the balance is reported.
+    """
+    label = conf.get("label", conf["id"])
+    token, base_url, source = _credential(conf)
+    if not token:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message="No Hyper credential")
+    base = str(
+        base_url
+        or os.environ.get("USAGE_MONITOR_HYPER_BASE_URL")
+        or "https://hyper.charm.land/v1"
+    ).rstrip("/")
+    try:
+        code, body = _http_get_json(f"{base}/credits", token, timeout=float(conf.get("timeout", 12.0)))
+        status, msg = _status_from_http(code, body)
+        ps = ProviderStatus(conf["id"], label, status=status, source=source, message=msg)
+        if 200 <= code < 300 and isinstance(body, dict):
+            balance = _safe_float(body.get("balance"))
+            if balance is None:
+                ps.status = "unknown"
+                ps.message = "Credits response missing balance"
+                ps.details.append("Unrecognized Hyper credits shape")
+            else:
+                ps.balance = Money(balance, str(conf.get("currency") or "credits"))
+                ps.details.append(f"hypercredits remaining: {balance:g}")
+                if balance <= 0:
+                    ps.status = "quota_exhausted"
+                    ps.message = ps.message or "Hyper credits exhausted"
+        return ps
+    except Exception as exc:
+        return ProviderStatus(conf["id"], label, status="unavailable", source=source, message=str(exc)[:240])
+
+
 def _adapter_xai(conf: dict[str, Any]) -> ProviderStatus:
     """Grok / xAI prepaid credits via the Management API.
 
@@ -1423,6 +1519,10 @@ REGISTRY: dict[str, Callable[[dict[str, Any]], ProviderStatus | list[ProviderSta
     "generic-http": _adapter_openai_compatible,
     "openai": _adapter_openai,
     "xai": _adapter_xai,
+    "opencode-go": _adapter_opencode_go,
+    "opencode": _adapter_opencode_go,
+    "charm-hyper": _adapter_charm_hyper,
+    "hyper": _adapter_charm_hyper,
     "supergrok": _adapter_supergrok,
     "grok": _adapter_supergrok,
     "placeholder": _adapter_placeholder,

@@ -572,3 +572,74 @@ def test_account_usage_window_labels_aliased(monkeypatch):
     assert ps.status == "ok"
     assert [w.label for w in ps.windows] == ["Current session", "Current week"]
     assert ps.windows[0].remaining_percent == 80.0
+
+
+def test_opencode_go_happy_path(fake_http):
+    fake_http["/zen/go/v1/usage"] = (200, {
+        "usage": {
+            "rolling": {"status": "ok", "percent": 25, "resetsAt": "2026-08-24T17:46:42.492Z"},
+            "weekly": {"status": "ok", "percent": 12, "resetsAt": "2026-08-31T00:00:00.492Z"},
+            "monthly": {"status": "ok", "percent": 24, "resetsAt": "2026-09-21T02:58:55.492Z"},
+        }
+    })
+    ps = core._adapter_opencode_go(_conf("opencode-go"))
+    assert ps.status == "ok"
+    assert [w.label for w in ps.windows] == ["Rolling window", "Current week", "Current month"]
+    assert ps.windows[0].used_percent == 25.0
+    assert ps.windows[0].remaining_percent == 75.0
+    assert ps.windows[0].reset_at == "2026-08-24T17:46:42.492Z"
+    assert fake_http.calls[0] == "https://opencode.ai/zen/go/v1/usage"
+
+
+def test_opencode_go_window_status_and_warning(fake_http):
+    fake_http["/zen/go/v1/usage"] = (200, {
+        "usage": {
+            "rolling": {"status": "capped", "percent": 100, "resetsAt": "2026-08-24T17:46:42Z"},
+            "weekly": {"status": "ok", "percent": 90, "resetsAt": "2026-08-31T00:00:00Z"},
+            "monthly": {"status": "ok", "percent": 5, "resetsAt": "2026-09-21T02:58:55Z"},
+        }
+    })
+    ps = core._adapter_opencode_go(_conf("opencode-go"))
+    assert ps.status == "quota_exhausted"
+    assert any("rolling: capped" in d for d in ps.details)
+
+
+def test_opencode_go_unrecognized_shape(fake_http):
+    fake_http["/zen/go/v1/usage"] = (200, {"usage": {}})
+    ps = core._adapter_opencode_go(_conf("opencode-go"))
+    assert ps.status == "unknown"
+    assert ps.windows == []
+
+
+def test_opencode_go_missing_credential():
+    ps = core._adapter_opencode_go({"id": "opencode-go", "label": "Test", "type": "opencode-go"})
+    assert ps.status == "unavailable"
+    assert "No OpenCode credential" in ps.message
+
+
+def test_charm_hyper_happy_path(fake_http):
+    fake_http["/v1/credits"] = (200, {"balance": 100})
+    ps = core._adapter_charm_hyper(_conf("charm-hyper"))
+    assert ps.status == "ok"
+    assert ps.balance.amount == 100.0
+    assert ps.balance.currency == "credits"
+    assert any("hypercredits remaining: 100" in d for d in ps.details)
+    assert fake_http.calls[0] == "https://hyper.charm.land/v1/credits"
+
+
+def test_charm_hyper_exhausted(fake_http):
+    fake_http["/v1/credits"] = (200, {"balance": 0})
+    ps = core._adapter_charm_hyper(_conf("charm-hyper"))
+    assert ps.status == "quota_exhausted"
+
+
+def test_charm_hyper_unrecognized_shape(fake_http):
+    fake_http["/v1/credits"] = (200, {"unexpected": True})
+    ps = core._adapter_charm_hyper(_conf("charm-hyper"))
+    assert ps.status == "unknown"
+
+
+def test_charm_hyper_missing_credential():
+    ps = core._adapter_charm_hyper({"id": "charm-hyper", "label": "Test", "type": "charm-hyper"})
+    assert ps.status == "unavailable"
+    assert "No Hyper credential" in ps.message
