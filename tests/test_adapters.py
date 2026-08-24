@@ -643,3 +643,57 @@ def test_charm_hyper_missing_credential():
     ps = core._adapter_charm_hyper({"id": "charm-hyper", "label": "Test", "type": "charm-hyper"})
     assert ps.status == "unavailable"
     assert "No Hyper credential" in ps.message
+
+
+def test_credential_file_source(tmp_path):
+    secret = tmp_path / "deepseek.token"
+    secret.write_text("file-token\n", encoding="utf-8")
+    token, base, source = core._credential({
+        "credential": {"source": "file", "path": str(secret)},
+    })
+    assert token == "file-token"
+    assert source == "file"
+
+
+def test_credential_file_source_missing_file(tmp_path):
+    token, _, source = core._credential({
+        "credential": {"source": "file", "path": str(tmp_path / "nope.token")},
+    })
+    assert token is None
+    assert source == "file"
+
+
+def test_deepseek_via_file_credential(fake_http, tmp_path):
+    fake_http["/user/balance"] = (200, {"is_available": True, "balance_infos": [
+        {"currency": "CNY", "total_balance": "1.10", "granted_balance": "1.10"},
+    ]})
+    secret = tmp_path / "deepseek.token"
+    secret.write_text("file-token", encoding="utf-8")
+    ps = core._adapter_deepseek(_conf(
+        "deepseek",
+        credential={"source": "file", "path": str(secret)},
+    ))
+    assert ps.status == "ok"
+    assert fake_http.tokens[0] == "file-token"
+    assert ps.source == "file"
+
+
+def test_credential_file_source_no_path():
+    token, _, source = core._credential({"credential": {"source": "file"}})
+    assert token is None
+    assert source == "file"
+
+
+def test_codex_tokens_via_file_credential(tmp_path):
+    from usage_monitor_app import codex
+
+    auth = tmp_path / "tokens.json"
+    auth.write_text(json.dumps({
+        "auth_mode": "chatgpt",
+        "tokens": {"access_token": "at-file", "refresh_token": "rt-file", "account_id": "acc-1"},
+    }), encoding="utf-8")
+    tokens, source, persist = codex._load_tokens({"credential": {"source": "file", "path": str(auth)}})
+    assert tokens and tokens["access_token"] == "at-file"
+    assert tokens["account_id"] == "acc-1"
+    assert source == f"file:{auth}"
+    assert persist is None

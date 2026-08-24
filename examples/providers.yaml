@@ -14,6 +14,7 @@
 #
 # Credential sources
 #   keychain  {source: keychain, service: ..., account: ...}
+#   file      {source: file, path: ~/.config/usagemon/secrets/deepseek}  # Linux/systemd
 #   env       {source: env, name: ENV_VAR_NAME}
 #   hermes    {source: hermes, provider: <hermes provider id>}  # optional pool
 #   literal   {source: literal, value: TOKEN} — tests only

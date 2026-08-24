@@ -400,6 +400,18 @@ def _credential(conf: dict[str, Any]) -> tuple[Optional[str], Optional[str], str
         return token, conf.get("base_url"), "keychain"
     if source == "literal":
         return str(cred.get("value") or "") or None, conf.get("base_url"), "config"
+    if source == "file":
+        raw_path = str(cred.get("path") or "").strip()
+        if not raw_path:
+            return None, conf.get("base_url"), "file"
+        path = Path(raw_path).expanduser()
+        if not path.is_file():
+            return None, conf.get("base_url"), "file"
+        try:
+            token = path.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            return None, conf.get("base_url"), "file"
+        return token, conf.get("base_url"), "file"
     if source == "hermes":
         token, base_url, hermes_source = _hermes_runtime_token(str(cred.get("provider") or conf.get("id")))
         return token, conf.get("base_url") or base_url, hermes_source or "hermes"

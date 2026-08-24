@@ -41,7 +41,7 @@ providers:
 
 ## Credential sources
 
-### macOS Keychain — preferred
+### macOS Keychain — preferred on macOS
 
 Store a token:
 
@@ -60,6 +60,42 @@ credential:
   service: api-usage-monitor/deepseek
   account: default
 ```
+
+### Secret file — Linux / systemd
+
+Token in a `0600` file; the recommended source on Linux (macOS: use keychain):
+
+```bash
+install -m 600 /dev/null ~/.config/usagemon/secrets/deepseek
+echo -n 'TOKEN_HERE' > ~/.config/usagemon/secrets/deepseek
+```
+
+```yaml
+credential:
+  source: file
+  path: ~/.config/usagemon/secrets/deepseek
+```
+
+With a systemd user service, prefer handing the file via `LoadCredential=`
+(or `LoadCredentialEncrypted=` with `systemd-creds`) instead of keeping the
+secret in the home directory. systemd exposes it under
+`/run/user/<uid>/credentials/<name>`; point `path` at that runtime path:
+
+```ini
+[Service]
+LoadCredential=deepseek:/etc/creds/deepseek
+```
+
+```yaml
+credential:
+  source: file
+  path: /run/user/1000/credentials/deepseek   # your uid
+```
+
+Note: `%d` is only expanded inside unit files, not in providers.yaml.
+
+Leading/trailing whitespace is stripped; the file must contain exactly the
+token. A missing or unreadable file reports `unavailable` ("No ... credential").
 
 ### Environment variable
 

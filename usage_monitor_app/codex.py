@@ -194,6 +194,17 @@ def _load_tokens(conf: dict[str, Any]) -> tuple[dict[str, Any], str, Optional[st
         raw = os.environ.get(str(cred.get("name") or ""), "")
         if raw:
             return _parse_token_blob(raw), "env", None
+    elif source == "file":
+        raw_path = str(cred.get("path") or "").strip()
+        if raw_path:
+            path = Path(raw_path).expanduser()
+            if path.is_file():
+                try:
+                    raw = path.read_text(encoding="utf-8").strip()
+                except OSError:
+                    raw = ""
+                if raw:
+                    return _parse_token_blob(raw), f"file:{path}", None
 
     # 2) Default keychain for this provider id
     service = str(conf.get("keychain_service") or DEFAULT_KEYCHAIN_SERVICE)

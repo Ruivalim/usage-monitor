@@ -10,6 +10,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - OpenCode Go subscription usage windows (`opencode-go` / `opencode`) via `opencode.ai/zen/go/v1/usage`.
 - Charm Hyper credits balance (`charm-hyper` / `hyper`) via `hyper.charm.land/v1/credits`.
+- Credential source `file` (token in a `0600` file), for Linux/systemd (`LoadCredential`) setups.
 
 ### Added
 
